@@ -48,11 +48,11 @@ public:
 	bool seekToFrame(size_t index);
 	/** @brief 获取总帧数 */
 	size_t getFrameCount() const;
-	/** @brief 获取起始时间�?*/
+	/** @brief 获取起始时间 */
 	uint64_t getStartTime() const;
-	/** @brief 获取结束时间�?*/
+	/** @brief 获取结束时间 */
 	uint64_t getEndTime() const;
-	/** @brief 根据时间戳查找最近的帧索�?*/
+	/** @brief 根据时间戳查找最近的帧索引 */
 	size_t getFrameIndexAtTime(uint64_t timestamp) const;
 
 	void closeRead();
@@ -75,7 +75,7 @@ private:
 	// 读取索引：pair<timestamp, file_offset>
 	std::vector<std::pair<uint64_t, std::streampos>> frame_index_;
 
-	// 异步�?
+	// 异步写入队列
 	struct WriteTask {
 		PointCloudPtr cloud;
 		Pose pose;

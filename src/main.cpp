@@ -81,13 +81,23 @@ int main(int argc, char **argv)
 		g_appConfig.outlier_mean_k, g_appConfig.outlier_stddev_mul, g_appConfig.outlier_enabled,
 		g_appConfig.voxel_leaf_size, g_appConfig.voxel_enabled
 	);
+	
+	// 将 Docking 配置应用到 UI
+	w.setDockingValues(
+		g_appConfig.nr_sector_x_min, g_appConfig.nr_sector_x_max,
+		g_appConfig.nr_sector_y_min, g_appConfig.nr_sector_y_max,
+		g_appConfig.nr_sector_z_min, g_appConfig.nr_sector_z_max,
+		g_appConfig.nr_percentile, g_appConfig.nr_enabled,
+		g_appConfig.edge_x_min, g_appConfig.edge_x_max,
+		g_appConfig.edge_y_min, g_appConfig.edge_y_max,
+		g_appConfig.edge_z_min, g_appConfig.edge_z_max,
+		g_appConfig.edge_ransac_dist, g_appConfig.edge_enabled
+	);
 
 	// 触发滤波器参数初始化（发送信号以更新滤波器）
 	emit w.minDistChanged(g_appConfig.distance_min);
 	emit w.maxDistChanged(g_appConfig.distance_max);
 	emit w.distEnabledChanged(g_appConfig.distance_enabled);
-	emit w.roiBoundsChanged(g_appConfig.roi_x_min, g_appConfig.roi_x_max, g_appConfig.roi_y_min, g_appConfig.roi_y_max, g_appConfig.roi_z_min, g_appConfig.roi_z_max);
-	emit w.roiEnabledChanged(g_appConfig.roi_enabled);
 	emit w.seaLevelChanged(g_appConfig.sea_level_z);
 	emit w.seaMarginChanged(g_appConfig.sea_margin);
 	emit w.seaEnabledChanged(g_appConfig.sea_enabled);
@@ -95,6 +105,39 @@ int main(int argc, char **argv)
 	emit w.outlierEnabledChanged(g_appConfig.outlier_enabled);
 	emit w.voxelSizeChanged(g_appConfig.voxel_leaf_size);
 	emit w.voxelEnabledChanged(g_appConfig.voxel_enabled);
+	// 密度滤波器初始化
+	emit w.densityParamsChanged(g_appConfig.density_voxel_size, g_appConfig.density_min_points);
+	emit w.densityEnabledChanged(g_appConfig.density_enabled);
+	// 运动滤波器初始化
+	emit w.motionParamsChanged(g_appConfig.motion_cell_size, g_appConfig.motion_threshold);
+	emit w.motionOutputChanged(g_appConfig.motion_output_static);
+	emit w.motionEnabledChanged(g_appConfig.motion_enabled);
+
+	// 初始化 Docking 算法配置（从持久化配置加载）
+	Linger::DockingConfig dockingConfig;
+	dockingConfig.nearest.sector_x_min = g_appConfig.nr_sector_x_min;
+	dockingConfig.nearest.sector_x_max = g_appConfig.nr_sector_x_max;
+	dockingConfig.nearest.sector_y_min = g_appConfig.nr_sector_y_min;
+	dockingConfig.nearest.sector_y_max = g_appConfig.nr_sector_y_max;
+	dockingConfig.nearest.sector_z_min = g_appConfig.nr_sector_z_min;
+	dockingConfig.nearest.sector_z_max = g_appConfig.nr_sector_z_max;
+	dockingConfig.nearest.percentile = g_appConfig.nr_percentile;
+	dockingConfig.nearest.enabled = g_appConfig.nr_enabled;
+	dockingConfig.edge.sector_x_min = g_appConfig.edge_x_min;
+	dockingConfig.edge.sector_x_max = g_appConfig.edge_x_max;
+	dockingConfig.edge.sector_y_min = g_appConfig.edge_y_min;
+	dockingConfig.edge.sector_y_max = g_appConfig.edge_y_max;
+	dockingConfig.edge.edge_z_min = g_appConfig.edge_z_min;
+	dockingConfig.edge.edge_z_max = g_appConfig.edge_z_max;
+	dockingConfig.edge.ransac_distance_threshold = g_appConfig.edge_ransac_dist;
+	dockingConfig.edge.enabled = g_appConfig.edge_enabled;
+	dockingConfig.temporal.max_jump_m = g_appConfig.temporal_max_jump;
+	dockingConfig.temporal.enabled = g_appConfig.temporal_enabled;
+	docking.setConfig(dockingConfig);
+	LOG_INFO("Docking algorithm initialized: Nearest={}, Edge={}, Temporal={}",
+	         dockingConfig.nearest.enabled ? "ON" : "OFF",
+	         dockingConfig.edge.enabled ? "ON" : "OFF",
+	         dockingConfig.temporal.enabled ? "ON" : "OFF");
 
 	/**
 	 * @brief 连接 UI 信号以持久化配置变更
@@ -156,8 +199,34 @@ int main(int argc, char **argv)
 		saveConfig();
 	});
 
+	// 密度滤波器参数持久化
+	QObject::connect(&w, &PointCloudWgt::densityParamsChanged, [saveConfig](double voxel, int minpts){
+		g_appConfig.density_voxel_size = static_cast<float>(voxel);
+		g_appConfig.density_min_points = minpts;
+		saveConfig();
+	});
+	QObject::connect(&w, &PointCloudWgt::densityEnabledChanged, [saveConfig](bool enabled){
+		g_appConfig.density_enabled = enabled;
+		saveConfig();
+	});
+
+	// 运动滤波器参数持久化
+	QObject::connect(&w, &PointCloudWgt::motionParamsChanged, [saveConfig](double cell, double thresh){
+		g_appConfig.motion_cell_size = static_cast<float>(cell);
+		g_appConfig.motion_threshold = static_cast<float>(thresh);
+		saveConfig();
+	});
+	QObject::connect(&w, &PointCloudWgt::motionOutputChanged, [saveConfig](bool output_static){
+		g_appConfig.motion_output_static = output_static;
+		saveConfig();
+	});
+	QObject::connect(&w, &PointCloudWgt::motionEnabledChanged, [saveConfig](bool enabled){
+		g_appConfig.motion_enabled = enabled;
+		saveConfig();
+	});
+
 	// 靠泊检测参数连接 - 最近区域检测
-	QObject::connect(&w, &PointCloudWgt::nearestSectorChanged, [&docking, rend](double xmin, double xmax, double ymin, double ymax, double zmin, double zmax){
+	QObject::connect(&w, &PointCloudWgt::nearestSectorChanged, [&docking, rend, saveConfig](double xmin, double xmax, double ymin, double ymax, double zmin, double zmax){
 		auto cfg = docking.getNearestConfig();
 		cfg.sector_x_min = static_cast<float>(xmin);
 		cfg.sector_x_max = static_cast<float>(xmax);
@@ -166,6 +235,14 @@ int main(int argc, char **argv)
 		cfg.sector_z_min = static_cast<float>(zmin);
 		cfg.sector_z_max = static_cast<float>(zmax);
 		docking.setNearestConfig(cfg);
+		// 持久化
+		g_appConfig.nr_sector_x_min = static_cast<float>(xmin);
+		g_appConfig.nr_sector_x_max = static_cast<float>(xmax);
+		g_appConfig.nr_sector_y_min = static_cast<float>(ymin);
+		g_appConfig.nr_sector_y_max = static_cast<float>(ymax);
+		g_appConfig.nr_sector_z_min = static_cast<float>(zmin);
+		g_appConfig.nr_sector_z_max = static_cast<float>(zmax);
+		saveConfig();
 		// 更新扇区可视化
 		if (rend) {
 			rend->setNearestSector(
@@ -176,16 +253,20 @@ int main(int argc, char **argv)
 		}
 		LOG_INFO("[Docking] Nearest sector: X[{:.1f},{:.1f}] Y[{:.1f},{:.1f}] Z[{:.1f},{:.1f}]", xmin, xmax, ymin, ymax, zmin, zmax);
 	});
-	QObject::connect(&w, &PointCloudWgt::nearestPercentileChanged, [&docking](double pct){
+	QObject::connect(&w, &PointCloudWgt::nearestPercentileChanged, [&docking, saveConfig](double pct){
 		auto cfg = docking.getNearestConfig();
 		cfg.percentile = static_cast<float>(pct);
 		docking.setNearestConfig(cfg);
+		g_appConfig.nr_percentile = static_cast<float>(pct);
+		saveConfig();
 		LOG_INFO("[Docking] Nearest percentile: {:.1f}%", pct);
 	});
-	QObject::connect(&w, &PointCloudWgt::nearestEnabledChanged, [&docking, rend](bool enabled){
+	QObject::connect(&w, &PointCloudWgt::nearestEnabledChanged, [&docking, rend, saveConfig](bool enabled){
 		auto cfg = docking.getNearestConfig();
 		cfg.enabled = enabled;
 		docking.setNearestConfig(cfg);
+		g_appConfig.nr_enabled = enabled;
+		saveConfig();
 		// 更新可视化
 		if (rend) {
 			rend->setNearestSector(
@@ -198,45 +279,47 @@ int main(int argc, char **argv)
 	});
 	
 	// 靠泊检测参数连接 - 码头边缘检测
-	QObject::connect(&w, &PointCloudWgt::edgeZRangeChanged, [&docking, rend](double zmin, double zmax){
+	QObject::connect(&w, &PointCloudWgt::edgeSectorChanged, [&docking, rend, saveConfig](double xmin, double xmax, double ymin, double ymax, double zmin, double zmax){
 		auto cfg = docking.getEdgeConfig();
+		cfg.sector_x_min = static_cast<float>(xmin);
+		cfg.sector_x_max = static_cast<float>(xmax);
+		cfg.sector_y_min = static_cast<float>(ymin);
+		cfg.sector_y_max = static_cast<float>(ymax);
 		cfg.edge_z_min = static_cast<float>(zmin);
 		cfg.edge_z_max = static_cast<float>(zmax);
 		docking.setEdgeConfig(cfg);
+		g_appConfig.edge_x_min = static_cast<float>(xmin);
+		g_appConfig.edge_x_max = static_cast<float>(xmax);
+		g_appConfig.edge_y_min = static_cast<float>(ymin);
+		g_appConfig.edge_y_max = static_cast<float>(ymax);
+		g_appConfig.edge_z_min = static_cast<float>(zmin);
+		g_appConfig.edge_z_max = static_cast<float>(zmax);
+		saveConfig();
 		// 更新边缘检测区域可视化
 		if (rend) {
 			rend->setEdgeRegion(
-				cfg.sector_x_min, cfg.sector_x_max,
-				cfg.sector_y_min, cfg.sector_y_max,
+				static_cast<float>(xmin), static_cast<float>(xmax),
+				static_cast<float>(ymin), static_cast<float>(ymax),
 				static_cast<float>(zmin), static_cast<float>(zmax),
 				cfg.enabled);
 		}
-		LOG_INFO("[Docking] Edge Z range: [{:.2f}, {:.2f}]", zmin, zmax);
+		LOG_INFO("[Docking] Edge sector: X[{:.1f}, {:.1f}], Y[{:.1f}, {:.1f}], Z[{:.2f}, {:.2f}]",
+		         xmin, xmax, ymin, ymax, zmin, zmax);
 	});
-	QObject::connect(&w, &PointCloudWgt::edgeXMaxChanged, [&docking, rend](double xmax){
-		auto cfg = docking.getEdgeConfig();
-		cfg.sector_x_max = static_cast<float>(xmax);
-		docking.setEdgeConfig(cfg);
-		// 更新边缘检测区域可视化
-		if (rend) {
-			rend->setEdgeRegion(
-				cfg.sector_x_min, static_cast<float>(xmax),
-				cfg.sector_y_min, cfg.sector_y_max,
-				cfg.edge_z_min, cfg.edge_z_max,
-				cfg.enabled);
-		}
-		LOG_INFO("[Docking] Edge X max: {:.1f}", xmax);
-	});
-	QObject::connect(&w, &PointCloudWgt::edgeRansacDistChanged, [&docking](double dist){
+	QObject::connect(&w, &PointCloudWgt::edgeRansacDistChanged, [&docking, saveConfig](double dist){
 		auto cfg = docking.getEdgeConfig();
 		cfg.ransac_distance_threshold = static_cast<float>(dist);
 		docking.setEdgeConfig(cfg);
+		g_appConfig.edge_ransac_dist = static_cast<float>(dist);
+		saveConfig();
 		LOG_INFO("[Docking] Edge RANSAC threshold: {:.3f}m", dist);
 	});
-	QObject::connect(&w, &PointCloudWgt::edgeEnabledChanged, [&docking, rend](bool enabled){
+	QObject::connect(&w, &PointCloudWgt::edgeEnabledChanged, [&docking, rend, saveConfig](bool enabled){
 		auto cfg = docking.getEdgeConfig();
 		cfg.enabled = enabled;
 		docking.setEdgeConfig(cfg);
+		g_appConfig.edge_enabled = enabled;
+		saveConfig();
 		// 更新可视化
 		if (rend) {
 			auto edgeCfg = docking.getEdgeConfig();
@@ -249,6 +332,17 @@ int main(int argc, char **argv)
 		LOG_INFO("[Docking] Dock edge detection: {}", enabled ? "enabled" : "disabled");
 	});
 
+	// 触发初始化信号，确保渲染器接收到配置参数（在信号连接之后）
+	emit w.nearestSectorChanged(g_appConfig.nr_sector_x_min, g_appConfig.nr_sector_x_max,
+	                            g_appConfig.nr_sector_y_min, g_appConfig.nr_sector_y_max,
+	                            g_appConfig.nr_sector_z_min, g_appConfig.nr_sector_z_max);
+	emit w.nearestPercentileChanged(g_appConfig.nr_percentile);
+	emit w.nearestEnabledChanged(g_appConfig.nr_enabled);
+	emit w.edgeSectorChanged(g_appConfig.edge_x_min, g_appConfig.edge_x_max,
+	                         g_appConfig.edge_y_min, g_appConfig.edge_y_max,
+	                         g_appConfig.edge_z_min, g_appConfig.edge_z_max);
+	emit w.edgeRansacDistChanged(g_appConfig.edge_ransac_dist);
+	emit w.edgeEnabledChanged(g_appConfig.edge_enabled);
 
 	/**
 	 * @brief 链式回调：设备 ->处理器 -> 渲染器
@@ -325,6 +419,10 @@ int main(int argc, char **argv)
 		//立刻触发一次渲染更新（读取最新快照并提交给 renderer）
 		std::vector<PointCloudPtr> snap = proc.takeLatestSnapshot();
 		if (!snap.empty() && rend) rend->submitMap(snap); });
+
+	// 触发 ROI Filter 初始化信号（在信号连接之后）
+	emit w.roiBoundsChanged(g_appConfig.roi_x_min, g_appConfig.roi_x_max, g_appConfig.roi_y_min, g_appConfig.roi_y_max, g_appConfig.roi_z_min, g_appConfig.roi_z_max);
+	emit w.roiEnabledChanged(g_appConfig.roi_enabled);
 
 	// 连接设备管理器信号
 	QObject::connect(&w, &PointCloudWgt::connectDeviceRequested, [&dev](uint32_t handle){

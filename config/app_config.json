@@ -10,13 +10,13 @@
             "enabled": false
         },
         "roi": {
-            "x_min": 0.0,
+            "x_min": -10.0,
             "x_max": 10.0,
             "y_min": -10.0,
-            "y_max": -0.5,
-            "z_min": -1.0,
-            "z_max": -0.25,
-            "enabled": false
+            "y_max": -0.10000000149011612,
+            "z_min": -5.0,
+            "z_max": -0.10000000149011612,
+            "enabled": true
         },
         "sea_filter": {
             "sea_level_z": -0.6000000238418579,
@@ -31,6 +31,32 @@
         "voxel": {
             "leaf_size": 0.10000000149011612,
             "enabled": false
+        }
+    },
+    "docking": {
+        "nearest_region": {
+            "sector_x_min": 0.10000000149011612,
+            "sector_x_max": 15.0,
+            "sector_y_min": -15.0,
+            "sector_y_max": -0.10000000149011612,
+            "sector_z_min": -5.0,
+            "sector_z_max": -0.10000000149011612,
+            "percentile": 5.0,
+            "enabled": true
+        },
+        "dock_edge": {
+            "x_min": 0.10000000149011612,
+            "x_max": 10.0,
+            "y_min": -10.0,
+            "y_max": -0.10000000149011612,
+            "z_min": -5.0,
+            "z_max": -0.10000000149011612,
+            "ransac_dist": 0.15000000596046449,
+            "enabled": true
+        },
+        "temporal": {
+            "max_jump_m": 2.0,
+            "enabled": true
         }
     }
 }

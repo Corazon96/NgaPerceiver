@@ -26,7 +26,7 @@ DeviceManager::DeviceManager()
 	replayer_ = std::make_unique<Replayer>();
 	data_processor_ = std::make_unique<DataProcessor>();
 	
-	// ת�� Replayer �Ļص�
+	// 绑定 Replayer 回调
 	replayer_->onFrame = [this](PointCloudPtr cloud, const Pose& pose) {
 		try {
 			if (onFrameWithPose) {
@@ -93,18 +93,17 @@ static bool IsPointCloudDataType(uint8_t type) {
 		   type == kLivoxLidarSphericalCoordinateData;
 }
 
-// 将 LivoxLidarEthernetPacket 转换为 PointCloudPtr
 static PointCloudPtr ParsePointCloudFromPacket(const LivoxLidarEthernetPacket *pkt)
 {
 	if (!pkt)
 		return nullptr;
 
-	// Ԥ�ȼ���������ͣ����⴦���ǵ������ݣ��� IMU��
+	// 仅处理点云数据包
 	if (!IsPointCloudDataType(pkt->data_type)) {
 		return nullptr;
 	}
 
-	// ʹ�� offsetof ȷ�� header ��С������ pkt->length ����ȫ�ж�
+	// 使用 offsetof 确定 header 大小以确保 pkt->length 安全检查
 	size_t total_len = static_cast<size_t>(pkt->length);
 	size_t header_size = offsetof(LivoxLidarEthernetPacket, data);
 	if (total_len < header_size)
@@ -118,7 +117,7 @@ static PointCloudPtr ParsePointCloudFromPacket(const LivoxLidarEthernetPacket *p
 
 	auto cap_estimated = [](size_t est)
 	{
-		const size_t MAX_EST = 10 * 1000 * 1000; // ����������ֵ��10M
+		const size_t MAX_EST = 10 * 1000 * 1000; // 最大估计值为10M
 		return (est > MAX_EST) ? MAX_EST : est;
 	};
 
@@ -145,7 +144,7 @@ static PointCloudPtr ParsePointCloudFromPacket(const LivoxLidarEthernetPacket *p
 			std::memcpy(&raw_local, payload_base + offset, structSize);
 
 			Point p;
-			p.x = static_cast<float>(raw_local.x) / 1000.0f; // ���� -> ��
+			p.x = static_cast<float>(raw_local.x) / 1000.0f; // 毫米 -> 米
 			p.y = static_cast<float>(raw_local.y) / 1000.0f;
 			p.z = static_cast<float>(raw_local.z) / 1000.0f;
 			p.intensity = static_cast<float>(raw_local.reflectivity) / 255.0f;
@@ -216,43 +215,32 @@ static PointCloudPtr ParsePointCloudFromPacket(const LivoxLidarEthernetPacket *p
 	return pc;
 }
 
-// �� packet �� timestamp �ֶν�� uint64_t��С�ˣ�
 static uint64_t ParseTimestampNsFromPacket(const LivoxLidarEthernetPacket *pkt)
 {
-    // 1. ��ָ����
     if (pkt == nullptr)
     {
         return 0ULL;
     }
 
-    // 2. ���Ȱ�ȫ��� (Bounds Checking)
-    // ��ȡ���ݰ��������ܳ���
     size_t total_len = static_cast<size_t>(pkt->length);
-    // ���� timestamp �ֶ��ڽṹ���е��ֽ�ƫ����
     const size_t ts_offset = offsetof(LivoxLidarEthernetPacket, timestamp);
     
-    // �ؼ���飺ȷ�����յ������ݰ����� ���� ������ʱ����ֶ�
-    // timestamp �� 8 �ֽ� (uint64_t)��������Ҫ offset + 8
     if (total_len < ts_offset + 8)
     {
-        return 0ULL; // ���ݰ���ȱ���޷���ȡʱ���
+        return 0ULL;
     }
 
-    // 3. ��ȡ�ֽ�ָ��
     const uint8_t *base = reinterpret_cast<const uint8_t *>(pkt);
     const uint8_t *ts_ptr = base + ts_offset;
 
-    // 4. �ֶ�����С���� (Little-Endian Parsing)
     uint64_t t = 0ULL;
     for (int i = 0; i < 8; ++i)
     {
-        // ��ÿ���ֽ��ƶ�����Ӧ��λ�� (0, 8, 16 ... 56 λ)
         t |= (static_cast<uint64_t>(ts_ptr[i]) << (8 * i));
     }
     return t;
 }
 
-// ��� data_type ==0��IMU�������� IMU ԭʼ�ṹ������ȫ��
 static bool ParseImuFromPacket(const LivoxLidarEthernetPacket *pkt, IMUData &imu_out)
 {
 	if (!pkt)
@@ -281,7 +269,6 @@ static bool ParseImuFromPacket(const LivoxLidarEthernetPacket *pkt, IMUData &imu
 	return true;
 }
 
-// Livox �ص���װ
 static void OnLivoxPointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEthernetPacket *data, void *client_data)
 {
 	if (!data)
@@ -291,7 +278,6 @@ static void OnLivoxPointCloudCallback(uint32_t handle, const uint8_t dev_type, L
 	if (!mgr)
 		return;
 
-	// ���ˣ����������Ի�豸�Ҵ��ڲɼ�״̬������
 	if (!mgr->isActiveDevice(handle) || !mgr->isAcquiring()) {
 		return;
 	}
@@ -299,7 +285,6 @@ static void OnLivoxPointCloudCallback(uint32_t handle, const uint8_t dev_type, L
 	mgr->handlePointCloud(data);
 }
 
-// ר�� IMU �ص���ע�ᵽ SDK �� IMU �ص��ӿڣ�
 static void OnLivoxImuCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEthernetPacket *data, void *client_data)
 {
 	if (!data)
@@ -309,7 +294,6 @@ static void OnLivoxImuCallback(uint32_t handle, const uint8_t dev_type, LivoxLid
 	if (!mgr)
 		return;
 
-	// ���ˣ����������Ի�豸�Ҵ��ڲɼ�״̬������
 	if (!mgr->isActiveDevice(handle) || !mgr->isAcquiring()) {
 		return;
 	}
@@ -330,13 +314,10 @@ void DeviceManager::handlePointCloud(const void* data_ptr)
 	const LivoxLidarEthernetPacket* data = reinterpret_cast<const LivoxLidarEthernetPacket*>(data_ptr);
 	try
 	{
-		// �ȿ��ټ��㲢����ʱ����������ظ�����
 		uint64_t ts = ParseTimestampNsFromPacket(data);
 
-		// ������־��ÿ���ӡһ�������ͳ��
 		static std::atomic<uint64_t> s_pkt_count{0};
 		s_pkt_count.fetch_add(1, std::memory_order_relaxed);
-		// ʹ�ú����������ӡ
 		LOG_DEBUG_THROTTLED(1000, "[Livox Input] pkts/s={} ts={}", s_pkt_count.exchange(0, std::memory_order_relaxed), ts);
 
 		enqueuePacket(reinterpret_cast<const uint8_t*>(data), data->length, ts);
@@ -356,21 +337,17 @@ void DeviceManager::handleImu(const void* data_ptr)
 	const LivoxLidarEthernetPacket* data = reinterpret_cast<const LivoxLidarEthernetPacket*>(data_ptr);
 	try
 	{
-        // �ȿ��ټ��㲢����ʱ����������ظ�����
 		uint64_t ts = ParseTimestampNsFromPacket(data);
 
-		// ��������������� IMU
 		IMUData imu;
 		if (ParseImuFromPacket(data, imu))
 		{
 			if (getDataProcessor()) {
-				// 1. ��������λ������ʵʱ��ʾ
 				Pose p;
 				p.imu = imu;
 				p.timestamp_ns = ts;
 				getDataProcessor()->updateLastPose(p);
 
-				// 2. �� IMU ���ݲ���������������̬����
 				getDataProcessor()->addImuSample(ts, imu);
 			}
 		}
@@ -395,7 +372,6 @@ void DeviceManager::handleDeviceInfoChange(uint32_t handle, const void* info_ptr
 		{
 			std::lock_guard<std::mutex> lk(devices_mutex_);
 			
-			// 1. �������������豸��������Ϣ
 			bool found = false;
 			for (auto& dev : devices_) {
 				if (dev.handle == handle) {
@@ -409,7 +385,6 @@ void DeviceManager::handleDeviceInfoChange(uint32_t handle, const void* info_ptr
 				}
 			}
 
-			// 2. ��������豸�����ӵ��б�
 			if (!found && info) {
 				DeviceInfo dev;
 				dev.handle = handle;
@@ -421,24 +396,20 @@ void DeviceManager::handleDeviceInfoChange(uint32_t handle, const void* info_ptr
 				devices_.push_back(dev);
 			}
 
-			// 3. �Զ����Ӳ��ԣ������ǰû�л�豸���Զ����ӵ�һ�����ֵ��豸
 			if (active_device_handle_ == 0 && !devices_.empty()) {
 				active_device_handle_ = devices_[0].handle;
 				devices_[0].is_connected = true;
 				devices_[0].is_acquiring = true; 
 				is_acquiring_ = true;
 				
-				// �������ø��豸�ĵ��Ʒ���
 				EnableLivoxLidarPointSend(active_device_handle_, nullptr, nullptr);
 				
 				LOG_INFO("[DeviceManager] Auto-connected to device: {}", devices_[0].ip);
 			}
 			
-			// �����б��Թ��ص�ʹ�ã������ڻص��г�����
 			current_devices = devices_;
 		}
 
-		// 4. ֪ͨ�ϲ�Ӧ�ã��� UI ���£�
 		if (onDeviceListUpdated) {
 			onDeviceListUpdated(current_devices);
 		}
@@ -513,7 +484,6 @@ void DeviceManager::disconnectDevice()
 
 void DeviceManager::startAcquisition()
 {
-	// ������ڻطţ���ֹ�����ɼ�
 	if (isReplaying()) {
 		std::string msg = "Please stop replay and connect device first.";
 		LOG_WARN("[DeviceManager] {}", msg);
@@ -577,7 +547,6 @@ bool DeviceManager::startReplay(const std::string& filepath)
 		return false; 
 	}
 
-	// ֹͣ��ǰ���豸�ɼ���������ڽ��У����������ݳ�ͻ
 	stopAcquisition();
 
 	return replayer_->start(filepath);
@@ -630,7 +599,6 @@ bool DeviceManager::start(const std::string& config_path)
 		return true;
 	}
 	
-	// ʹ�� u8path ȷ���� Windows ����ȷ���� UTF-8 ·��
 	if (!std::filesystem::exists(std::filesystem::u8path(config_path)))
 	{
 		LOG_ERROR("Livox config not found at: {}. Cannot start.", config_path);
@@ -643,11 +611,8 @@ bool DeviceManager::start(const std::string& config_path)
 		return false;
 	}
 
-	// ע����ƻص�
 	SetLivoxLidarPointCloudCallBack(OnLivoxPointCloudCallback, this);
-	// ע����� IMU �ص���ʹ����ͬ�� client_data(this)������ʱ��ͬ��/����
 	SetLivoxLidarImuDataCallback(OnLivoxImuCallback, this);
-	// ע���豸״̬����ص�
 	SetLivoxLidarInfoChangeCallback(OnLivoxInfoChangeCallback, this);
 
 	if (!LivoxLidarSdkStart())
@@ -658,7 +623,6 @@ bool DeviceManager::start(const std::string& config_path)
 	}
 
 	dm_running_.store(true);
-	// ����֡�ַ��߳�
 	frame_worker_ = std::thread(&DeviceManager::frameDispatcher_, this);
 	return true;
 }
@@ -672,40 +636,31 @@ void DeviceManager::stop()
 
 	dm_running_.store(false);
 
-	// ע�� IMU �ص����� SDK ֧�ִ� nullptr��
 	SetLivoxLidarImuDataCallback(nullptr, nullptr);
-	// ע�����ƻص�
 	SetLivoxLidarPointCloudCallBack(nullptr, nullptr);
-	// ע���豸��Ϣ����ص�
 	SetLivoxLidarInfoChangeCallback(nullptr, nullptr);
 
-	// ����֡�ַ��߳�
 	{
 		std::lock_guard<std::mutex> lk(frame_cv_mutex_);
 	}
 	frame_cv_.notify_all();
 
-	// �ȴ�֡�߳��˳�
 	if (frame_worker_.joinable())
 		frame_worker_.join();
 
 	LivoxLidarSdkUninit();
 }
 
-// ������ SDK ��֡���У��������ٷ��أ�SPSC ���λ�������
 void DeviceManager::enqueuePacket(const uint8_t* data, size_t length, uint64_t timestamp_ns)
 {
 	uint64_t corrected_ts = data_processor_->syncTimestamp(timestamp_ns);
 
 	RawPacket pkt;
 	pkt.timestamp_ns = corrected_ts;
-	// Ԥ���䲢��������
 	pkt.data.assign(data, data + length);
 
-	// ������������������֡����֤�����߲����������̰߳�ȫ��
 	if (frame_queue_.push(pkt))
 	{
-		// ֪ͨ֡�ַ��߳���������
 		{
 			std::lock_guard<std::mutex> lk(frame_cv_mutex_);
 		}
@@ -713,12 +668,10 @@ void DeviceManager::enqueuePacket(const uint8_t* data, size_t length, uint64_t t
 	}
 	else
 	{
-		// ��������������֡
 		LOG_WARN_THROTTLED(1000, "[DeviceManager] Frame queue full! Dropping packet. (ts={})", corrected_ts);
 	}
 }
 
-// ֡�ַ��̣߳��Ӷ�����ȡ��֡�����Ҷ�Ӧ Pose �����ûص����ڷ� SDK�߳���ִ�У�
 void DeviceManager::frameDispatcher_()
 {
 	while (dm_running_.load())
@@ -726,26 +679,21 @@ void DeviceManager::frameDispatcher_()
 		RawPacket raw_pkt;
 		if (!frame_queue_.pop(raw_pkt))
 		{
-			// ����Ϊ�գ��ȴ�֪ͨ��ʱ����
 			std::unique_lock<std::mutex> lk(frame_cv_mutex_);
 			frame_cv_.wait_for(lk, std::chrono::milliseconds(100), [this]()
 							   { return !dm_running_.load() || frame_queue_.approx_size() > 0; });
 			
-			// �����Դ�ӡ��/����ͳ��
 			uint64_t cur_queue = frame_queue_.approx_size();
 			LOG_DEBUG_THROTTLED(1000, "[FrameQueue] approx_size={}", cur_queue);
 			
 			continue;
 		}
 
-		// �ɹ� pop����¼ͳ��
 		static std::atomic<uint64_t> s_pop_count{0};
 		s_pop_count.fetch_add(1, std::memory_order_relaxed);
 
-		// �������
 		LivoxLidarEthernetPacket* pkt_ptr = reinterpret_cast<LivoxLidarEthernetPacket*>(raw_pkt.data.data());
 		
-		// ����Ƿ�Ϊ�������ݣ�������ǣ����� IMU ���ݻ��룩��������
 		if (!IsPointCloudDataType(pkt_ptr->data_type)) {
 			continue;
 		}
@@ -763,12 +711,9 @@ void DeviceManager::frameDispatcher_()
 		
 		if (!has_pose)
 		{
-			// �������ԣ�ʹ�����һ����֪�� Pose
 			pose = data_processor_->getLastPose();
-			// ǿ��ͬ��ʱ�����ȷ��֡�ܱ��������̴���
 			pose.timestamp_ns = qf.timestamp_ns;
 
-			// ���ԣ���ӡΪʲôû���ҵ� Pose (ʹ��������)
 			LOG_WARN_THROTTLED(2000, "[DeviceManager] Warning: Failed to find matching Pose for timestamp {}. Fallback to last known pose.", qf.timestamp_ns);
 		}
 		else 
@@ -776,13 +721,10 @@ void DeviceManager::frameDispatcher_()
 			pose.timestamp_ns = qf.timestamp_ns;
 		}
 
-		// �����Ƿ��ֵ�ɹ�������������
 		try
 		{
-			// �������¼�ƣ���֡д���ļ�
 			replayer_->writeFrame(qf.cloud, pose);
 
-			// ���ظ��ƻص��Ա��⾺̬�������쳣
 			auto onFP = onFrameWithPose;
 			if (onFP)
 				onFP(qf.cloud, pose);
@@ -796,7 +738,6 @@ void DeviceManager::frameDispatcher_()
 			LOG_ERROR("[DeviceManager] Unknown exception in frame processing/callback");
 		}
 
-		// �����Դ�ӡͳ��
 		uint64_t pop = s_pop_count.exchange(0, std::memory_order_relaxed);
 		uint64_t qsz = frame_queue_.approx_size();
 		LOG_DEBUG_THROTTLED(1000, "[FrameQueue Stats] pop/s={} approx_size={}", pop, qsz);

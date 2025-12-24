@@ -247,7 +247,7 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 		QObject::connect(ui->seaEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit seaEnabledChanged(checked); });
 	}
 
-	// 统计离群点参数与开�?
+	// 统计离群点参数与开关
 	if (ui->outlierMeanKSpin && ui->outlierStddevSpin)
 	{
 		auto emitOutlier = [this]() {
@@ -261,7 +261,41 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 		QObject::connect(ui->outlierEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit outlierEnabledChanged(checked); });
 	}
 
-	// 最近区域检测参数与开�?
+	// 密度滤波器参数与开关
+	if (ui->densityVoxelSpin && ui->densityMinPtsSpin)
+	{
+		auto emitDensity = [this]() {
+			emit densityParamsChanged(ui->densityVoxelSpin->value(), ui->densityMinPtsSpin->value());
+		};
+		QObject::connect(ui->densityVoxelSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitDensity](double){ emitDensity(); });
+		QObject::connect(ui->densityMinPtsSpin, QOverload<int>::of(&QSpinBox::valueChanged), [emitDensity](int){ emitDensity(); });
+	}
+	if (ui->densityEnableCheck)
+	{
+		QObject::connect(ui->densityEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit densityEnabledChanged(checked); });
+	}
+
+	// 运动滤波器参数与开关
+	if (ui->motionCellSpin && ui->motionThreshSpin)
+	{
+		auto emitMotion = [this]() {
+			emit motionParamsChanged(ui->motionCellSpin->value(), ui->motionThreshSpin->value());
+		};
+		QObject::connect(ui->motionCellSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitMotion](double){ emitMotion(); });
+		QObject::connect(ui->motionThreshSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitMotion](double){ emitMotion(); });
+	}
+	if (ui->motionOutputCombo)
+	{
+		QObject::connect(ui->motionOutputCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int idx){
+			emit motionOutputChanged(idx == 0);  // 0=Static, 1=Dynamic
+		});
+	}
+	if (ui->motionEnableCheck)
+	{
+		QObject::connect(ui->motionEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit motionEnabledChanged(checked); });
+	}
+
+	// 最近区域检测参数与开关
 	if (ui->nrXMinSpin && ui->nrXMaxSpin && ui->nrYMinSpin && ui->nrYMaxSpin && ui->nrZMinSpin && ui->nrZMaxSpin)
 	{
 		auto emitNearestSector = [this]() {
@@ -281,23 +315,25 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 	{
 		QObject::connect(ui->nrPercentileSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [this](double v){ emit nearestPercentileChanged(v); });
 	}
-	if (ui->nrEnableCheck)
+	if (ui->nearestEnableCheck)
 	{
-		QObject::connect(ui->nrEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit nearestEnabledChanged(checked); });
+		QObject::connect(ui->nearestEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit nearestEnabledChanged(checked); });
 	}
 
 	// 码头边缘检测参数与开�?
-	if (ui->edgeZMinSpin && ui->edgeZMaxSpin)
+	if (ui->edgeXMinSpin && ui->edgeXMaxSpin && ui->edgeYMinSpin && ui->edgeYMaxSpin && ui->edgeZMinSpin && ui->edgeZMaxSpin)
 	{
-		auto emitEdgeZ = [this]() {
-			emit edgeZRangeChanged(ui->edgeZMinSpin->value(), ui->edgeZMaxSpin->value());
+		auto emitEdgeSector = [this]() {
+			emit edgeSectorChanged(ui->edgeXMinSpin->value(), ui->edgeXMaxSpin->value(),
+				ui->edgeYMinSpin->value(), ui->edgeYMaxSpin->value(),
+				ui->edgeZMinSpin->value(), ui->edgeZMaxSpin->value());
 		};
-		QObject::connect(ui->edgeZMinSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeZ](double){ emitEdgeZ(); });
-		QObject::connect(ui->edgeZMaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeZ](double){ emitEdgeZ(); });
-	}
-	if (ui->edgeXMaxSpin)
-	{
-		QObject::connect(ui->edgeXMaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [this](double v){ emit edgeXMaxChanged(v); });
+		QObject::connect(ui->edgeXMinSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeSector](double){ emitEdgeSector(); });
+		QObject::connect(ui->edgeXMaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeSector](double){ emitEdgeSector(); });
+		QObject::connect(ui->edgeYMinSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeSector](double){ emitEdgeSector(); });
+		QObject::connect(ui->edgeYMaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeSector](double){ emitEdgeSector(); });
+		QObject::connect(ui->edgeZMinSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeSector](double){ emitEdgeSector(); });
+		QObject::connect(ui->edgeZMaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [emitEdgeSector](double){ emitEdgeSector(); });
 	}
 	if (ui->edgeRansacDistSpin)
 	{
@@ -306,6 +342,15 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 	if (ui->edgeEnableCheck)
 	{
 		QObject::connect(ui->edgeEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit edgeEnabledChanged(checked); });
+	}
+
+	// 连接 Docking Type ComboBox 切换 StackedWidget
+	if (ui->dockingTypeCombo && ui->dockingStack)
+	{
+		QObject::connect(ui->dockingTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int idx)
+					 {
+			ui->dockingStack->setCurrentIndex(idx);
+		});
 	}
 
 	// 连接设备管理按钮
@@ -581,4 +626,32 @@ void PointCloudWgt::setFilterValues(double dist_min, double dist_max, bool dist_
 
 	if (ui->voxelSizeSpinBox) { const QSignalBlocker b(ui->voxelSizeSpinBox); ui->voxelSizeSpinBox->setValue(voxel_size); }
 	if (ui->voxelEnableCheck) { const QSignalBlocker b(ui->voxelEnableCheck); ui->voxelEnableCheck->setChecked(voxel_enabled); }
+}
+
+void PointCloudWgt::setDockingValues(double nr_xmin, double nr_xmax, double nr_ymin, double nr_ymax, double nr_zmin, double nr_zmax,
+                                     double nr_percentile, bool nr_enabled,
+                                     double edge_xmin, double edge_xmax, double edge_ymin, double edge_ymax,
+                                     double edge_zmin, double edge_zmax, double edge_ransac, bool edge_enabled)
+{
+	// Nearest Region
+	if (ui->nrXMinSpin) { const QSignalBlocker b(ui->nrXMinSpin); ui->nrXMinSpin->setValue(nr_xmin); }
+	if (ui->nrXMaxSpin) { const QSignalBlocker b(ui->nrXMaxSpin); ui->nrXMaxSpin->setValue(nr_xmax); }
+	if (ui->nrYMinSpin) { const QSignalBlocker b(ui->nrYMinSpin); ui->nrYMinSpin->setValue(nr_ymin); }
+	if (ui->nrYMaxSpin) { const QSignalBlocker b(ui->nrYMaxSpin); ui->nrYMaxSpin->setValue(nr_ymax); }
+	if (ui->nrZMinSpin) { const QSignalBlocker b(ui->nrZMinSpin); ui->nrZMinSpin->setValue(nr_zmin); }
+	if (ui->nrZMaxSpin) { const QSignalBlocker b(ui->nrZMaxSpin); ui->nrZMaxSpin->setValue(nr_zmax); }
+	if (ui->nrPercentileSpin) { const QSignalBlocker b(ui->nrPercentileSpin); ui->nrPercentileSpin->setValue(nr_percentile); }
+	// nearestEnableCheck = nr_enabled
+	if (ui->nearestEnableCheck) { const QSignalBlocker b(ui->nearestEnableCheck); ui->nearestEnableCheck->setChecked(nr_enabled); }
+	
+	// Dock Edge
+	if (ui->edgeXMinSpin) { const QSignalBlocker b(ui->edgeXMinSpin); ui->edgeXMinSpin->setValue(edge_xmin); }
+	if (ui->edgeXMaxSpin) { const QSignalBlocker b(ui->edgeXMaxSpin); ui->edgeXMaxSpin->setValue(edge_xmax); }
+	if (ui->edgeYMinSpin) { const QSignalBlocker b(ui->edgeYMinSpin); ui->edgeYMinSpin->setValue(edge_ymin); }
+	if (ui->edgeYMaxSpin) { const QSignalBlocker b(ui->edgeYMaxSpin); ui->edgeYMaxSpin->setValue(edge_ymax); }
+	if (ui->edgeZMinSpin) { const QSignalBlocker b(ui->edgeZMinSpin); ui->edgeZMinSpin->setValue(edge_zmin); }
+	if (ui->edgeZMaxSpin) { const QSignalBlocker b(ui->edgeZMaxSpin); ui->edgeZMaxSpin->setValue(edge_zmax); }
+	if (ui->edgeRansacDistSpin) { const QSignalBlocker b(ui->edgeRansacDistSpin); ui->edgeRansacDistSpin->setValue(edge_ransac); }
+	// edgeEnableCheck = edge_enabled
+	if (ui->edgeEnableCheck) { const QSignalBlocker b(ui->edgeEnableCheck); ui->edgeEnableCheck->setChecked(edge_enabled); }
 }

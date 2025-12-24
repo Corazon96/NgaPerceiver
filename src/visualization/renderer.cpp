@@ -18,7 +18,11 @@
 #include <QCoreApplication>
 #include <QVTKOpenGLNativeWidget.h>
 
-// VTK 渲染头文�?
+// VTK 输出窗口控制（禁用警告弹窗）
+#include <vtkOutputWindow.h>
+#include <vtkFileOutputWindow.h>
+
+// VTK 渲染头文件
 #include <vtkNew.h>
 #include <vtkGenericOpenGLRenderWindow.h>
 #include <vtkSmartPointer.h>
@@ -307,6 +311,10 @@ struct Renderer::Impl
 
 Renderer::Renderer() : pimpl(new Impl())
 {
+	// 禁用 VTK 警告弹窗（重定向到日志或完全静默）
+	vtkOutputWindow::SetInstance(nullptr);  // 禁用所有 VTK 输出窗口
+	vtkObject::GlobalWarningDisplayOff();   // 禁用全局警告显示
+
 	// 启动渲染工作线程
 	pimpl->workerRunning = true;
 	pimpl->renderWorker = std::thread([this]() {
@@ -1076,22 +1084,26 @@ void Renderer::updateDocking(const Linger::DockingState& state)
 		}
 
 		// ===== 更新文本信息 =====
-		char info_buf[256];
+		char info_buf[512];
 		
 		if (state.nearest.valid && state.edge.valid) {
+			// 两者都有效：显示融合结果和各自的评分
 			snprintf(info_buf, sizeof(info_buf), 
-				"Nearest: %.2fm (%zu pts)  Edge: %.2fm / %.1f° (%zu inliers)",
-				state.nearest.distance_m, state.nearest.used_points,
-				state.edge.distance_m, state.edge.angle_deg, state.edge.inlier_count);
+				"Final: %.2fm | Nearest: %.2fm (cont:%.2f, conf:%d%%) | Edge: %.2fm/%.1f° (geo:%.2f, conf:%d%%)",
+				state.final_distance_m,
+				state.nearest.distance_m, state.nearest.continuity_score, state.nearest.confidence,
+				state.edge.distance_m, state.edge.angle_deg, state.edge.geometry_score, state.edge.confidence);
 		} else if (state.nearest.valid) {
+			// 仅最近区域有效
 			snprintf(info_buf, sizeof(info_buf), 
-				"Nearest: %.2f m  (used %zu/%zu pts, conf %d%%)",
-				state.nearest.distance_m, state.nearest.used_points, 
-				state.nearest.point_count, state.nearest.confidence);
+				"Nearest: %.2fm  (cont:%.2f, used:%zu/%zu, conf:%d%%)",
+				state.nearest.distance_m, state.nearest.continuity_score,
+				state.nearest.used_points, state.nearest.point_count, state.nearest.confidence);
 		} else if (state.edge.valid) {
+			// 仅边缘检测有效
 			snprintf(info_buf, sizeof(info_buf), 
-				"Edge: %.2f m  Angle: %.1f°  (inliers %zu/%zu, conf %d%%)",
-				state.edge.distance_m, state.edge.angle_deg,
+				"Edge: %.2fm / %.1f°  (geo:%.2f, inliers:%zu/%zu, conf:%d%%)",
+				state.edge.distance_m, state.edge.angle_deg, state.edge.geometry_score,
 				state.edge.inlier_count, state.edge.total_points, state.edge.confidence);
 		} else {
 			snprintf(info_buf, sizeof(info_buf), "Docking: No detection");

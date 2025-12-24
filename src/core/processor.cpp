@@ -10,11 +10,8 @@
 #include <memory>
 #include <chrono>
 
-static const size_t BATCH_SIZE = 32; // 每次处理多个帧以提高吞吐
-
 PointCloudProcessor::PointCloudProcessor() : running_(false), count_(0)
 {
-	// worker线程在 start() 中启动
 }
 
 PointCloudProcessor::~PointCloudProcessor()
@@ -75,9 +72,9 @@ void PointCloudProcessor::start()
 
 			// 批量收集（非阻塞）
 			std::vector<std::pair<PointCloudPtr, Pose>> batch;
-			batch.reserve(BATCH_SIZE);
+			batch.reserve(LingerConfig::PROCESSOR_BATCH_SIZE);
 			batch.push_back(item);
-			for (size_t b =1; b < BATCH_SIZE; ++b) {
+			for (size_t b =1; b < LingerConfig::PROCESSOR_BATCH_SIZE; ++b) {
 				std::pair<PointCloudPtr, Pose> it;
 				if (queue_.pop(it)) {
 					batch.push_back(it);
@@ -112,6 +109,7 @@ void PointCloudProcessor::start()
 					filter->filter(pc, pc);
 					frame_filtered += filter->getLastFilteredCount();
 				}
+
 				// if (pc->empty()) continue; // 不要丢弃空帧，否则会丢失 filtered_count 统计
 
 				uint64_t frame_ts = pose.timestamp_ns;
@@ -120,7 +118,7 @@ void PointCloudProcessor::start()
 					frame_ts = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
 				}
 
-				// 根据配置决定是否应用姿态变换
+				// 2.根据配置决定是否应用姿态变换
 				PointCloudPtr transformed_pc;
 				if (LingerConfig::ENABLE_POSE_TRANSFORM) {
 					// 将点云从雷达坐标系变换到世界坐标系

@@ -75,6 +75,9 @@ namespace LingerConfig {
     /** @brief 处理器内部队列大小 */
     inline constexpr size_t PROCESSOR_QUEUE_SIZE = 8192;
 
+    /** @brief 处理器单次批处理大小 (帧数)，用于提高吞吐量 */
+    inline constexpr size_t PROCESSOR_BATCH_SIZE = 32;
+
     /** 
      * @brief 处理器发布间隔 (毫秒)
      * 30ms -> 约 33Hz，略高于 30FPS 以补偿抖动

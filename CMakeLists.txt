@@ -331,17 +331,18 @@ endif()
 if(BUILD_HEADLESS)
 	set(HEADLESS_SOURCES
 		src/main_headless.cpp
-		src/device_manager.cpp
-		src/data_processor.cpp
-		src/processor.cpp
-		src/replayer.cpp
-		src/streamer.cpp
-		src/distance_filter.cpp
-		src/voxel_filter.cpp
-		src/crop_box_filter.cpp
-		src/sea_surface_filter.cpp
-		src/statistical_outlier_filter.cpp
-		src/app_config.cpp
+		src/acquisition/device_manager.cpp
+		src/acquisition/data_processor.cpp
+		src/core/processor.cpp
+		src/acquisition/replayer.cpp
+		src/acquisition/streamer.cpp
+		src/preprocessing/distance_filter.cpp
+		src/preprocessing/voxel_filter.cpp
+		src/preprocessing/crop_box_filter.cpp
+		src/preprocessing/statistical_outlier_filter.cpp
+		src/preprocessing/density_filter.cpp
+		src/preprocessing/motion_filter.cpp
+		src/core/app_config.cpp
 	)
 
 	add_executable(linger_perceiver_service ${HEADLESS_SOURCES})

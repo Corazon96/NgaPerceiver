@@ -50,6 +50,41 @@ struct AppConfig {
     // --- 体素滤波器 (Voxel Grid Filter) ---
     float voxel_leaf_size = 0.1f;
     bool voxel_enabled = false;
+
+    // --- 密度滤波器 (Density Filter) ---
+    float density_voxel_size = 0.3f;
+    int density_min_points = 3;
+    bool density_enabled = false;
+
+    // --- 运动滤波器 (Motion Filter) ---
+    float motion_cell_size = 0.5f;
+    float motion_threshold = 0.3f;
+    bool motion_output_static = true;
+    bool motion_enabled = false;
+
+    // --- 靠泊检测 - 最近区域 (Nearest Region Detection) ---
+    float nr_sector_x_min = 0.0f;
+    float nr_sector_x_max = 50.0f;
+    float nr_sector_y_min = -15.0f;
+    float nr_sector_y_max = 15.0f;
+    float nr_sector_z_min = -1.0f;
+    float nr_sector_z_max = 10.0f;
+    float nr_percentile = 5.0f;
+    bool nr_enabled = true;
+
+    // --- 靠泊检测 - 码头边缘 (Dock Edge Detection) ---
+    float edge_x_min = 0.0f;
+    float edge_x_max = 30.0f;
+    float edge_y_min = -15.0f;
+    float edge_y_max = 15.0f;
+    float edge_z_min = 0.3f;
+    float edge_z_max = 1.5f;
+    float edge_ransac_dist = 0.15f;
+    bool edge_enabled = true;
+
+    // --- 时序滤波 (Temporal Filter) ---
+    float temporal_max_jump = 2.0f;
+    bool temporal_enabled = true;
 };
 
 /**

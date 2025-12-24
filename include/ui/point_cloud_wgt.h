@@ -16,7 +16,7 @@ class QComboBox;
 class QSlider;
 class QLabel;
 
-/** @brief 生成�?UI 类的前向声明 */
+/** @brief 生成�?UI 类的前向声明 */
 namespace Ui
 {
 	class PointCloudWgt;
@@ -30,31 +30,35 @@ public:
 	explicit PointCloudWgt(QWidget *parent = nullptr);
 	~PointCloudWgt();
 
-	/** @brief 返回 QWidget* 以保持类型安全，调用者可以使�?qobject_cast 转换�?QVTKOpenGLNativeWidget�?*/
+	/** @brief 返回 QWidget* 以保持类型安全，调用者可以使�?qobject_cast 转换�?QVTKOpenGLNativeWidget�?*/
 	QWidget *getVtkWidget() const { return vtkWidget_; }
 
 	/** @brief 获取 Renderer 实例 */
 	std::shared_ptr<Renderer> getRenderer() const { return renderer_; }
 
-	/** @brief 设置滤波�?UI 初始值（从配置加载后调用�?*/
+	/** @brief 设置滤波�?UI 初始值（从配置加载后调用�?*/
 	void setFilterValues(double dist_min, double dist_max, bool dist_enabled,
 						 double roi_xmin, double roi_xmax, double roi_ymin, double roi_ymax, double roi_zmin, double roi_zmax, bool roi_enabled,
 						 double sea_z, double sea_margin, bool sea_enabled,
 						 int outlier_k, double outlier_stddev, bool outlier_enabled,
 						 double voxel_size, bool voxel_enabled);
-
+	/** @brief 设置 Docking 检测 UI 初始值（从配置加载后调用）*/
+	void setDockingValues(double nr_xmin, double nr_xmax, double nr_ymin, double nr_ymax, double nr_zmin, double nr_zmax,
+	                      double nr_percentile, bool nr_enabled,
+	                      double edge_xmin, double edge_xmax, double edge_ymin, double edge_ymax,
+	                      double edge_zmin, double edge_zmax, double edge_ransac, bool edge_enabled);
 signals:
-	/** @brief 当用户在 UI 中改变帧积分时长（单位毫秒）时发�?*/
+	/** @brief 当用户在 UI 中改变帧积分时长（单位毫秒）时发�?*/
 	void retentionChanged(int ms);
-	/** @brief 当用户在 UI 中改变点大小（单位像素）时发�?*/
+	/** @brief 当用户在 UI 中改变点大小（单位像素）时发�?*/
 	void pointSizeChanged(int size);
-	/** @brief 当用户在 UI 中改变最小距离（单位米）时发�?*/
+	/** @brief 当用户在 UI 中改变最小距离（单位米）时发�?*/
 	void minDistChanged(double val);
-	/** @brief 当用户在 UI 中改变最大距离（单位米）时发�?*/
+	/** @brief 当用户在 UI 中改变最大距离（单位米）时发�?*/
 	void maxDistChanged(double val);
-	/** @brief 当用户在 UI 中改变体素大小（单位米）时发�?*/
+	/** @brief 当用户在 UI 中改变体素大小（单位米）时发�?*/
 	void voxelSizeChanged(double val);
-	/** @brief 当用户在 UI 中改变体素滤波器是否启用时发�?*/
+	/** @brief 当用户在 UI 中改变体素滤波器是否启用时发�?*/
 	void voxelEnabledChanged(bool enabled);
 	void distEnabledChanged(bool enabled);
 	void roiBoundsChanged(double x_min, double x_max, double y_min, double y_max, double z_min, double z_max);
@@ -65,14 +69,22 @@ signals:
 	void outlierParamsChanged(int mean_k, double stddev_mul);
 	void outlierEnabledChanged(bool enabled);
 	
-	// 靠泊检测信�?- 最近区域检�?
+	// 密度滤波器信号
+	void densityParamsChanged(double voxel_size, int min_points);
+	void densityEnabledChanged(bool enabled);
+	
+	// 运动滤波器信号
+	void motionParamsChanged(double cell_size, double threshold);
+	void motionOutputChanged(bool output_static);
+	void motionEnabledChanged(bool enabled);
+	
+	// 靠泊检测信号 - 最近区域检测
 	void nearestSectorChanged(double x_min, double x_max, double y_min, double y_max, double z_min, double z_max);
 	void nearestPercentileChanged(double pct);
 	void nearestEnabledChanged(bool enabled);
 	
-	// 靠泊检测信�?- 码头边缘检�?
-	void edgeZRangeChanged(double z_min, double z_max);
-	void edgeXMaxChanged(double x_max);
+	// 靠泊检测信�?- 码头边缘检�?
+	void edgeSectorChanged(double x_min, double x_max, double y_min, double y_max, double z_min, double z_max);
 	void edgeRansacDistChanged(double dist);
 	void edgeEnabledChanged(bool enabled);
 

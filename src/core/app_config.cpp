@@ -111,6 +111,86 @@ bool LoadAppConfig(const std::string& path, AppConfig& cfg)
             if (v.HasMember("enabled") && v["enabled"].IsBool())
                 cfg.voxel_enabled = v["enabled"].GetBool();
         }
+
+        // density
+        if (filters.HasMember("density") && filters["density"].IsObject()) {
+            const auto& d = filters["density"];
+            if (d.HasMember("voxel_size") && d["voxel_size"].IsNumber())
+                cfg.density_voxel_size = static_cast<float>(d["voxel_size"].GetDouble());
+            if (d.HasMember("min_points") && d["min_points"].IsInt())
+                cfg.density_min_points = d["min_points"].GetInt();
+            if (d.HasMember("enabled") && d["enabled"].IsBool())
+                cfg.density_enabled = d["enabled"].GetBool();
+        }
+
+        // motion
+        if (filters.HasMember("motion") && filters["motion"].IsObject()) {
+            const auto& m = filters["motion"];
+            if (m.HasMember("cell_size") && m["cell_size"].IsNumber())
+                cfg.motion_cell_size = static_cast<float>(m["cell_size"].GetDouble());
+            if (m.HasMember("threshold") && m["threshold"].IsNumber())
+                cfg.motion_threshold = static_cast<float>(m["threshold"].GetDouble());
+            if (m.HasMember("output_static") && m["output_static"].IsBool())
+                cfg.motion_output_static = m["output_static"].GetBool();
+            if (m.HasMember("enabled") && m["enabled"].IsBool())
+                cfg.motion_enabled = m["enabled"].GetBool();
+        }
+    }
+
+    // docking
+    if (doc.HasMember("docking") && doc["docking"].IsObject()) {
+        const auto& docking = doc["docking"];
+
+        // nearest_region
+        if (docking.HasMember("nearest_region") && docking["nearest_region"].IsObject()) {
+            const auto& nr = docking["nearest_region"];
+            if (nr.HasMember("sector_x_min") && nr["sector_x_min"].IsNumber())
+                cfg.nr_sector_x_min = static_cast<float>(nr["sector_x_min"].GetDouble());
+            if (nr.HasMember("sector_x_max") && nr["sector_x_max"].IsNumber())
+                cfg.nr_sector_x_max = static_cast<float>(nr["sector_x_max"].GetDouble());
+            if (nr.HasMember("sector_y_min") && nr["sector_y_min"].IsNumber())
+                cfg.nr_sector_y_min = static_cast<float>(nr["sector_y_min"].GetDouble());
+            if (nr.HasMember("sector_y_max") && nr["sector_y_max"].IsNumber())
+                cfg.nr_sector_y_max = static_cast<float>(nr["sector_y_max"].GetDouble());
+            if (nr.HasMember("sector_z_min") && nr["sector_z_min"].IsNumber())
+                cfg.nr_sector_z_min = static_cast<float>(nr["sector_z_min"].GetDouble());
+            if (nr.HasMember("sector_z_max") && nr["sector_z_max"].IsNumber())
+                cfg.nr_sector_z_max = static_cast<float>(nr["sector_z_max"].GetDouble());
+            if (nr.HasMember("percentile") && nr["percentile"].IsNumber())
+                cfg.nr_percentile = static_cast<float>(nr["percentile"].GetDouble());
+            if (nr.HasMember("enabled") && nr["enabled"].IsBool())
+                cfg.nr_enabled = nr["enabled"].GetBool();
+        }
+
+        // dock_edge
+        if (docking.HasMember("dock_edge") && docking["dock_edge"].IsObject()) {
+            const auto& edge = docking["dock_edge"];
+            if (edge.HasMember("x_min") && edge["x_min"].IsNumber())
+                cfg.edge_x_min = static_cast<float>(edge["x_min"].GetDouble());
+            if (edge.HasMember("x_max") && edge["x_max"].IsNumber())
+                cfg.edge_x_max = static_cast<float>(edge["x_max"].GetDouble());
+            if (edge.HasMember("y_min") && edge["y_min"].IsNumber())
+                cfg.edge_y_min = static_cast<float>(edge["y_min"].GetDouble());
+            if (edge.HasMember("y_max") && edge["y_max"].IsNumber())
+                cfg.edge_y_max = static_cast<float>(edge["y_max"].GetDouble());
+            if (edge.HasMember("z_min") && edge["z_min"].IsNumber())
+                cfg.edge_z_min = static_cast<float>(edge["z_min"].GetDouble());
+            if (edge.HasMember("z_max") && edge["z_max"].IsNumber())
+                cfg.edge_z_max = static_cast<float>(edge["z_max"].GetDouble());
+            if (edge.HasMember("ransac_dist") && edge["ransac_dist"].IsNumber())
+                cfg.edge_ransac_dist = static_cast<float>(edge["ransac_dist"].GetDouble());
+            if (edge.HasMember("enabled") && edge["enabled"].IsBool())
+                cfg.edge_enabled = edge["enabled"].GetBool();
+        }
+
+        // temporal
+        if (docking.HasMember("temporal") && docking["temporal"].IsObject()) {
+            const auto& t = docking["temporal"];
+            if (t.HasMember("max_jump_m") && t["max_jump_m"].IsNumber())
+                cfg.temporal_max_jump = static_cast<float>(t["max_jump_m"].GetDouble());
+            if (t.HasMember("enabled") && t["enabled"].IsBool())
+                cfg.temporal_enabled = t["enabled"].GetBool();
+        }
     }
 
     LOG_INFO("[AppConfig] Loaded config from {}", path);
@@ -190,7 +270,69 @@ bool SaveAppConfig(const std::string& path, const AppConfig& cfg)
             filters.AddMember("voxel", v, alloc);
         }
 
+        // density
+        {
+            rapidjson::Value d(rapidjson::kObjectType);
+            d.AddMember("voxel_size", cfg.density_voxel_size, alloc);
+            d.AddMember("min_points", cfg.density_min_points, alloc);
+            d.AddMember("enabled", cfg.density_enabled, alloc);
+            filters.AddMember("density", d, alloc);
+        }
+
+        // motion
+        {
+            rapidjson::Value m(rapidjson::kObjectType);
+            m.AddMember("cell_size", cfg.motion_cell_size, alloc);
+            m.AddMember("threshold", cfg.motion_threshold, alloc);
+            m.AddMember("output_static", cfg.motion_output_static, alloc);
+            m.AddMember("enabled", cfg.motion_enabled, alloc);
+            filters.AddMember("motion", m, alloc);
+        }
+
         doc.AddMember("filters", filters, alloc);
+    }
+
+    // docking
+    {
+        rapidjson::Value docking(rapidjson::kObjectType);
+
+        // nearest_region
+        {
+            rapidjson::Value nr(rapidjson::kObjectType);
+            nr.AddMember("sector_x_min", cfg.nr_sector_x_min, alloc);
+            nr.AddMember("sector_x_max", cfg.nr_sector_x_max, alloc);
+            nr.AddMember("sector_y_min", cfg.nr_sector_y_min, alloc);
+            nr.AddMember("sector_y_max", cfg.nr_sector_y_max, alloc);
+            nr.AddMember("sector_z_min", cfg.nr_sector_z_min, alloc);
+            nr.AddMember("sector_z_max", cfg.nr_sector_z_max, alloc);
+            nr.AddMember("percentile", cfg.nr_percentile, alloc);
+            nr.AddMember("enabled", cfg.nr_enabled, alloc);
+            docking.AddMember("nearest_region", nr, alloc);
+        }
+
+        // dock_edge
+        {
+            rapidjson::Value edge(rapidjson::kObjectType);
+            edge.AddMember("x_min", cfg.edge_x_min, alloc);
+            edge.AddMember("x_max", cfg.edge_x_max, alloc);
+            edge.AddMember("y_min", cfg.edge_y_min, alloc);
+            edge.AddMember("y_max", cfg.edge_y_max, alloc);
+            edge.AddMember("z_min", cfg.edge_z_min, alloc);
+            edge.AddMember("z_max", cfg.edge_z_max, alloc);
+            edge.AddMember("ransac_dist", cfg.edge_ransac_dist, alloc);
+            edge.AddMember("enabled", cfg.edge_enabled, alloc);
+            docking.AddMember("dock_edge", edge, alloc);
+        }
+
+        // temporal
+        {
+            rapidjson::Value t(rapidjson::kObjectType);
+            t.AddMember("max_jump_m", cfg.temporal_max_jump, alloc);
+            t.AddMember("enabled", cfg.temporal_enabled, alloc);
+            docking.AddMember("temporal", t, alloc);
+        }
+
+        doc.AddMember("docking", docking, alloc);
     }
 
     // 写入文件

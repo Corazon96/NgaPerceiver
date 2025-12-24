@@ -69,7 +69,7 @@ void Streamer::recordWorker_() {
 			write_queue_.pop_front();
 		}
 
-		// 执行实际写入（无需持有 queue_mutex，但需�?file_mutex 保护 ofs_�?
+		// 执行实际写入（无需持有 queue_mutex，但需持有 file_mutex 保护 ofs_）
 		std::lock_guard<std::mutex> lk(file_mutex_);
 		if (!ofs_.is_open()) break;
 
@@ -80,7 +80,7 @@ void Streamer::recordWorker_() {
 		uint32_t count = static_cast<uint32_t>(task.cloud->points.size());
 		ofs_.write(reinterpret_cast<const char*>(&count), sizeof(uint32_t));
 
-		// 3. 写入点数�?
+		// 3. 写入点数据
 		if (count > 0) {
 			buffer_.clear();
 			if (buffer_.capacity() < count) {
@@ -99,7 +99,7 @@ void Streamer::closeWrite() {
 	is_writing_ = false;
 	queue_cv_.notify_all();
 
-	// 2. 等待线程结束（确保所有队列中的数据都写完�?
+	// 2. 等待线程结束（确保所有队列中的数据都写完）
 	if (record_thread_.joinable()) {
 		record_thread_.join();
 	}
@@ -119,7 +119,7 @@ bool Streamer::openRead(const std::string& filepath, std::atomic<bool>* running_
 	ifs_.open(std::filesystem::u8path(filepath), std::ios::binary | std::ios::in);
 	if (!ifs_.is_open()) return false;
 
-	// 校验文件�?
+	// 校验文件头
 	FileHeader header;
 	ifs_.read(reinterpret_cast<char*>(&header), sizeof(FileHeader));
 	if (ifs_.gcount() != sizeof(FileHeader)) {
@@ -138,7 +138,7 @@ bool Streamer::openRead(const std::string& filepath, std::atomic<bool>* running_
 	LOG_INFO("[Streamer] Indexing file...");
 	
 	while (ifs_.peek() != EOF) {
-		// 检查运行标志，如果�?false 则中�?
+		// 检查运行标志，如果为 false 则中止索引
 		if (running_flag && !running_flag->load()) {
 			LOG_INFO("[Streamer] Indexing aborted.");
 			ifs_.close();
@@ -154,13 +154,13 @@ bool Streamer::openRead(const std::string& filepath, std::atomic<bool>* running_
 		
 		frame_index_.push_back({p.timestamp_ns, current_pos});
 		
-		// 跳过点数�?
+		// 跳过点数据
 		if (count > 0) {
 			ifs_.seekg(count * sizeof(PackedPoint), std::ios::cur);
 		}
 	}
 	
-	// 重置到第一�?
+	// 重置到第一帧位置
 	ifs_.clear();
 	if (!frame_index_.empty()) {
 		ifs_.seekg(frame_index_[0].second);
@@ -207,7 +207,7 @@ size_t Streamer::getFrameIndexAtTime(uint64_t timestamp) const {
 	if (it == frame_index_.end()) return frame_index_.size() - 1;
 	if (it == frame_index_.begin()) return 0;
 	
-	// 比较 it �?it-1 哪个更近
+	// 比较 it 和 it-1 哪个更近
 	auto it_prev = it - 1;
 	if ((timestamp - it_prev->first) < (it->first - timestamp)) {
 		return std::distance(frame_index_.begin(), it_prev);
@@ -230,7 +230,7 @@ bool Streamer::readFrame(PointCloudPtr& out_cloud, Pose& out_pose) {
 		return false;
 	}
 
-	// 3. 读取点数�?
+	// 3. 读取点数据
 	out_cloud = std::make_shared<PointCloud>();
 	out_cloud->points.reserve(count);
 	out_cloud->width = count;

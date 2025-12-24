@@ -104,7 +104,7 @@ void Replayer::stop()
 	if (!running_.load()) return;
 
 	running_.store(false);
-	paused_.store(false); // 确保不卡在暂停状�?
+	paused_.store(false); // 确保不卡在暂停状态
 
 	if (replay_thread_.joinable()) {
 		replay_thread_.join();
@@ -172,7 +172,7 @@ void Replayer::replayWorker_(std::string filepath)
 	PointCloudPtr cloud;
 	Pose pose;
 	
-	// 读取第一帧作为基�?
+	// 读取第一帧作为基准
 	if (!streamer_.readFrame(cloud, pose)) {
 		LOG_INFO("[Replayer] File is empty or invalid.");
 		running_.store(false);
@@ -187,7 +187,7 @@ void Replayer::replayWorker_(std::string filepath)
 
 	auto start_time_sys = std::chrono::steady_clock::now();
 	
-	// 发送第一�?
+	// 发送第一帧
 	uint64_t now_ns = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 		std::chrono::system_clock::now().time_since_epoch()).count());
 	
@@ -217,7 +217,7 @@ void Replayer::replayWorker_(std::string filepath)
 			continue;
 		}
 
-		// 处理暂停 �?EOF
+		// 处理暂停 和 EOF
 		if (paused_.load() || eof_reached) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(20));
 			auto now = std::chrono::steady_clock::now();
@@ -321,7 +321,7 @@ void Replayer::handleSeek_(uint64_t start_ts_file, uint64_t duration_ns,
 				uint64_t now_ns = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::system_clock::now().time_since_epoch()).count());
 				
-				// 保留相对时间偏移以实现拖尾效�?
+				// 保留相对时间偏移以实现拖尾效果
 				if (first_ts > 0 && preload_duration_ns > 0) {
 					// Map [first_ts, first_ts + preload] to [now - preload, now]
 					// Note: current_ts_file >= first_ts
