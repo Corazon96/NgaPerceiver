@@ -250,10 +250,7 @@ void PointCloudProcessor::enqueue(PointCloudPtr pc, const Pose &pose)
 	std::pair<PointCloudPtr, Pose> q{pc, pose};
 	if (queue_.push(q))
 	{
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			count_.fetch_add(1, std::memory_order_relaxed);
-		}
+		count_.fetch_add(1, std::memory_order_relaxed);
 		cond_.notify_one();
 		return;
 	}
@@ -285,4 +282,18 @@ std::vector<PointCloudPtr> PointCloudProcessor::takeLatestSnapshot()
 {
 	std::lock_guard<std::mutex> lk(snapshot_mutex_);
 	return latest_snapshot_;
+}
+
+void PointCloudProcessor::clear()
+{
+	// 清空帧缓冲区和快照（用于 Seek 或重置）
+	{
+		std::lock_guard<std::mutex> lk(raw_mutex_);
+		frame_buffer_.clear();
+	}
+	{
+		std::lock_guard<std::mutex> lk(snapshot_mutex_);
+		latest_snapshot_.clear();
+	}
+	LOG_INFO("[Processor] Internal cache cleared.");
 }

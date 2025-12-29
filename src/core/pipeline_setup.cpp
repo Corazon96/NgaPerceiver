@@ -19,6 +19,7 @@ void SetupFilterPipeline(PointCloudProcessor& proc, PointCloudWgt& w)
      * 过滤掉距离小于 0.1m 和大于 100m 的点
      */
     auto dist_filter = std::make_shared<Linger::DistanceFilter>(LingerConfig::FILTER_DISTANCE_MIN_DEFAULT, LingerConfig::FILTER_DISTANCE_MAX_DEFAULT);
+    dist_filter->setEnabled(false); // 默认禁用，由 UI 控制开启
     proc.addFilter(dist_filter, false); // 预处理
     QObject::connect(&w, &PointCloudWgt::minDistChanged, [dist_filter](double d) {
         dist_filter->setMinDistance(static_cast<float>(d));
@@ -32,9 +33,10 @@ void SetupFilterPipeline(PointCloudProcessor& proc, PointCloudWgt& w)
 
     /**
      * @brief 添加体素滤波器 (World Frame / Post-Process)
-     * 默认 0.1m, 默认关闭 (由 UI 控制)
+     * 默认关闭 (由 UI 控制)
      */
     auto voxel_filter = std::make_shared<Linger::VoxelFilter>(LingerConfig::FILTER_VOXEL_SIZE_DEFAULT);
+    voxel_filter->setEnabled(false); // 默认禁用，由 UI 控制开启
     proc.addFilter(voxel_filter, true); // 后处理
     QObject::connect(&w, &PointCloudWgt::voxelSizeChanged, [voxel_filter](double s) {
         voxel_filter->setLeafSize(static_cast<float>(s));

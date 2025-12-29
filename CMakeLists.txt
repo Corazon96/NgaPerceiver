@@ -15,6 +15,7 @@ option(USE_PCL "Use PCL libraries" ON)
 option(USE_LIVOX "Use Livox SDK2" ON)
 option(BUILD_GUI "Build GUI application (Qt/VTK)" ON)
 option(BUILD_HEADLESS "Build headless service without Qt/VTK" OFF)
+option(ENABLE_TRANSLATIONS "Enable Qt translations (i18n)" ON)
 
 # GUI 构建依赖 Qt/VTK；Headless 不需要。默认开启 GUI 构建。
 set(USE_QT ${BUILD_GUI})
@@ -47,9 +48,20 @@ endif()
 set(EXTRA_COMPILE_DEFS "")
 
 if(USE_QT)
- find_package(Qt5 COMPONENTS Widgets REQUIRED) 
+ find_package(Qt5 COMPONENTS Widgets REQUIRED)
  message(STATUS "Qt5 Widgets found: ${Qt5Widgets_VERSION}")
  list(APPEND EXTRA_LIBS Qt5::Widgets)
+ 
+ # 查找 Qt5 LinguistTools 用于翻译支持
+ if(ENABLE_TRANSLATIONS)
+  find_package(Qt5 COMPONENTS LinguistTools QUIET)
+  if(Qt5LinguistTools_FOUND)
+   message(STATUS "Qt5 LinguistTools found - translations enabled")
+  else()
+   message(WARNING "Qt5 LinguistTools not found - translations disabled")
+   set(ENABLE_TRANSLATIONS OFF)
+  endif()
+ endif()
  
  if(NOT DEFINED VTK_DIR)
  if(EXISTS "${LOCAL_3RDPARTY_DIR}/${PCL_VERSION_DIR}/3rdParty/VTK/lib/cmake/${VTK_VERSION_DIR}")
@@ -181,22 +193,75 @@ if(BUILD_GUI)
  endif()
 	install(TARGETS linger_perceiver RUNTIME DESTINATION bin)
 
-	# 复制配置文件到输出目录
-	add_custom_command(TARGET linger_perceiver POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${CMAKE_SOURCE_DIR}/mid360_config.json"
-		"$<TARGET_FILE_DIR:linger_perceiver>/mid360_config.json"
-		COMMENT "Copying mid360_config.json to output directory"
-	)
-	
-	# 复制 config 目录下的应用配置文件
+	# 复制配置文件到输出目录的 config 子目录
 	add_custom_command(TARGET linger_perceiver POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:linger_perceiver>/config"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"${CMAKE_SOURCE_DIR}/mid360_config.json"
+		"$<TARGET_FILE_DIR:linger_perceiver>/config/mid360_config.json"
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		"${CMAKE_SOURCE_DIR}/config/app_config.json"
 		"$<TARGET_FILE_DIR:linger_perceiver>/config/app_config.json"
-		COMMENT "Copying app_config.json to output directory"
+		COMMENT "Copying config files to output directory"
 	)
+
+	# Qt 翻译文件处理
+	if(ENABLE_TRANSLATIONS AND Qt5LinguistTools_FOUND)
+		# 定义翻译文件列表
+		set(TS_FILES
+			"${CMAKE_SOURCE_DIR}/translations/linger_zh_CN.ts"
+			"${CMAKE_SOURCE_DIR}/translations/linger_en.ts"
+		)
+		
+		# 定义需要扫描的源文件（用于 lupdate）
+		# 使用目录而非文件列表，以便递归扫描所有源文件
+		set(TRANSLATION_SOURCE_DIRS
+			${CMAKE_SOURCE_DIR}/src
+			${CMAKE_SOURCE_DIR}/include
+			${CMAKE_SOURCE_DIR}/ui
+		)
+		
+		# 添加 update_translations 目标（跨平台的 lupdate 调用）
+		# 使用方法: cmake --build . --target update_translations
+		get_target_property(LUPDATE_EXECUTABLE Qt5::lupdate IMPORTED_LOCATION)
+		if(LUPDATE_EXECUTABLE)
+			add_custom_target(update_translations
+				COMMAND ${LUPDATE_EXECUTABLE}
+					-locations relative
+					-no-obsolete
+					${TRANSLATION_SOURCE_DIRS}
+					-ts ${TS_FILES}
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+				COMMENT "Updating translation files (.ts) with lupdate..."
+				VERBATIM
+			)
+			message(STATUS "Target 'update_translations' available - run: cmake --build . --target update_translations")
+		else()
+			message(WARNING "lupdate not found - update_translations target not available")
+		endif()
+		
+		# 设置 .qm 文件输出目录
+		set(QM_OUTPUT_DIR "${CMAKE_BINARY_DIR}/translations")
+		file(MAKE_DIRECTORY ${QM_OUTPUT_DIR})
+		
+		# 使用 qt5_add_translation 生成 .qm 文件
+		qt5_add_translation(QM_FILES ${TS_FILES})
+		
+		# 将 .qm 文件作为目标源文件，确保被构建
+		target_sources(linger_perceiver PRIVATE ${QM_FILES})
+		
+		# 添加翻译相关的编译宏
+		target_compile_definitions(linger_perceiver PRIVATE ENABLE_TRANSLATIONS)
+		
+		# 复制 .qm 文件到输出目录的 translations 子目录
+		add_custom_command(TARGET linger_perceiver POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:linger_perceiver>/translations"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different ${QM_FILES} "$<TARGET_FILE_DIR:linger_perceiver>/translations/"
+			COMMENT "Copying translation files (.qm) to output directory"
+		)
+		
+		message(STATUS "Translation files: ${TS_FILES}")
+	endif()
 endif() # BUILD_GUI
 
 # GUI 目标后处理与链接
@@ -315,16 +380,6 @@ if(BUILD_GUI)
 	endif()
 	endif() # WIN32
 
-	# 安装规则：将可执行文件安装到目标的 `bin` 目录（用于 make/installer 步骤）
-	install(TARGETS linger_perceiver RUNTIME DESTINATION bin)
-
-	# 复制配置文件到输出目录
-	add_custom_command(TARGET linger_perceiver POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${CMAKE_SOURCE_DIR}/mid360_config.json"
-		"$<TARGET_FILE_DIR:linger_perceiver>/mid360_config.json"
-		COMMENT "Copying mid360_config.json to output directory"
-	)
 endif()
 
 # Headless 模式可选构建：不依赖 Qt/VTK，仅保留设备/处理/通信管线
@@ -334,6 +389,8 @@ if(BUILD_HEADLESS)
 		src/acquisition/device_manager.cpp
 		src/acquisition/data_processor.cpp
 		src/core/processor.cpp
+		src/core/app_config.cpp
+		src/core/app_init.cpp
 		src/acquisition/replayer.cpp
 		src/acquisition/streamer.cpp
 		src/preprocessing/distance_filter.cpp
@@ -342,7 +399,9 @@ if(BUILD_HEADLESS)
 		src/preprocessing/statistical_outlier_filter.cpp
 		src/preprocessing/density_filter.cpp
 		src/preprocessing/motion_filter.cpp
-		src/core/app_config.cpp
+		src/segmentation/sea_surface_filter.cpp
+		src/algorithms/docking_algorithm.cpp
+		src/communication/docking_publisher.cpp
 	)
 
 	add_executable(linger_perceiver_service ${HEADLESS_SOURCES})
@@ -381,7 +440,7 @@ if(BUILD_HEADLESS)
 		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
 	)
 
-	# 链接仅需 PCL/Eigen/Livox（无 Qt/VTK）
+	# 链接仅需 PCL/Eigen/Livox（无 Qt/VTK）+ WinSock（UDP 通信）
 	set(HEADLESS_LIBS "")
 	if(USE_PCL)
 		list(APPEND HEADLESS_LIBS ${PCL_LIBRARIES})
@@ -398,27 +457,41 @@ if(BUILD_HEADLESS)
 	if(DEFINED LIVOX_SDK2_STATIC_LIB_RELEASE_PATH)
 		list(APPEND HEADLESS_LIBS $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:${LIVOX_SDK2_STATIC_LIB_RELEASE_PATH}>)
 	endif()
+	# Windows 平台需要链接 WinSock2（用于 UDP 通信）
+	if(WIN32)
+		list(APPEND HEADLESS_LIBS ws2_32)
+	endif()
 
 	if(HEADLESS_LIBS)
 		target_link_libraries(linger_perceiver_service PRIVATE ${HEADLESS_LIBS})
 	endif()
 
-	# 复制配置文件到输出目录，便于直接运行
-	add_custom_command(TARGET linger_perceiver_service POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${CMAKE_SOURCE_DIR}/mid360_config.json"
-		"$<TARGET_FILE_DIR:linger_perceiver_service>/mid360_config.json"
-		COMMENT "Copying mid360_config.json to headless output directory"
-	)
-
-	# 复制 config 目录下的应用配置文件
+	# 复制配置文件到输出目录的 config 子目录，便于直接运行
 	add_custom_command(TARGET linger_perceiver_service POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:linger_perceiver_service>/config"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"${CMAKE_SOURCE_DIR}/mid360_config.json"
+		"$<TARGET_FILE_DIR:linger_perceiver_service>/config/mid360_config.json"
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		"${CMAKE_SOURCE_DIR}/config/app_config.json"
 		"$<TARGET_FILE_DIR:linger_perceiver_service>/config/app_config.json"
-		COMMENT "Copying app_config.json to headless output directory"
+		COMMENT "Copying config files to headless output directory"
 	)
+
+	# 自动复制 PCL DLLs (Windows) - Headless 模式也需要 PCL 运行时
+	if(WIN32 AND USE_PCL)
+		set(_pcl_bin_dir "${LOCAL_3RDPARTY_DIR}/${PCL_VERSION_DIR}/bin")
+		if(EXISTS "${_pcl_bin_dir}")
+			add_custom_command(TARGET linger_perceiver_service POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E echo "Copying PCL runtime from ${_pcl_bin_dir} to $<TARGET_FILE_DIR:linger_perceiver_service> (config: $<CONFIG>)"
+				COMMAND ${CMAKE_COMMAND} -Dsrc_dir=${_pcl_bin_dir} -Ddst_dir=$<TARGET_FILE_DIR:linger_perceiver_service> -Dcfg=$<CONFIG> -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyPclDlls.cmake
+				COMMENT "Deploy PCL runtime DLLs for headless configuration"
+				VERBATIM
+			)
+		else()
+			message(WARNING "PCL bin directory not found at: ${_pcl_bin_dir}. Headless service may need PCL DLLs copied manually.")
+		endif()
+	endif()
 
 	install(TARGETS linger_perceiver_service RUNTIME DESTINATION bin)
 endif()
@@ -441,57 +514,6 @@ if(BUILD_GUI AND DEFINED LIVOX_SDK2_INCLUDE_DIR)
 	message(STATUS "Configured Livox SDK linking: Debug=${LIVOX_SDK2_STATIC_LIB_DEBUG_PATH} Release=${LIVOX_SDK2_STATIC_LIB_RELEASE_PATH}")
 endif()
 
-# 如果启用了 Qt 支持且找到了 Qt Widgets，链接 Qt 库并包含生成目录（供 ui/moc 产物使用）
-if(BUILD_GUI AND USE_QT AND Qt5Widgets_FOUND)
- target_link_libraries(linger_perceiver PRIVATE Qt5::Widgets)
- target_include_directories(linger_perceiver PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-endif()
-
-# Windows 平台相关的运行时部署（仅在 GUI 目标存在时）
-if(BUILD_GUI AND WIN32)
-# 以下为 Windows 平台下的 Qt 部署与插件处理逻辑
-set(_first_qt_prefix "")
-if(CMAKE_PREFIX_PATH)
- list(GET CMAKE_PREFIX_PATH 0 _first_qt_prefix)
-endif()
-set(_qt_bin_dir "${_first_qt_prefix}/bin")
-set(_windeployqt_args "")
-
-find_program(WINDEPLOYQT_EXE NAMES windeployqt HINTS "${_qt_bin_dir}" PATHS ENV PATH)
-
-if(WINDEPLOYQT_EXE)
- add_custom_command(TARGET linger_perceiver POST_BUILD
- COMMAND "${WINDEPLOYQT_EXE}" ${_windeployqt_args} "$<TARGET_FILE:linger_perceiver>"
- COMMENT "Running windeployqt to deploy Qt runtime"
- VERBATIM)
-else()
- message(WARNING "windeployqt not found; Qt DLLs will not be deployed automatically.")
-endif()
-
-# 设置 Qt 插件目录以便复制 platform 插件等运行时资源
-set(_qt_plugins_dir "${_first_qt_prefix}/plugins")
-
-if(EXISTS "${_qt_plugins_dir}/platforms")
- add_custom_command(TARGET linger_perceiver POST_BUILD
- COMMAND ${CMAKE_COMMAND} -E copy_directory
- "${_qt_plugins_dir}/platforms"
- "$<TARGET_FILE_DIR:linger_perceiver>/platforms"
- COMMENT "Copy Qt platform plugins (qwindows) to output")
-else()
- message(WARNING "Qt plugins/platforms not found at ${_qt_plugins_dir}/platforms")
-endif()
-
-# 在 Windows 上，如果启用了 Qt 并找到 Qt5::Core，可尝试将 Qt 插件复制到可执行目录
-if(USE_QT AND Qt5Widgets_FOUND)
- add_custom_command(TARGET linger_perceiver POST_BUILD
- COMMAND ${CMAKE_COMMAND} -E echo "Deploying Qt plugins from $<TARGET_FILE_DIR:Qt5::Core>/../plugins to $<TARGET_FILE_DIR:linger_perceiver>"
- COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_FILE_DIR:Qt5::Core>/../plugins" "$<TARGET_FILE_DIR:linger_perceiver>/plugins"
- COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_FILE_DIR:Qt5::Core>/../plugins/platforms" "$<TARGET_FILE_DIR:linger_perceiver>/platforms"
- COMMENT "Copy Qt plugins (fallback via Qt target path)"
- VERBATIM)
-endif()
-endif() # BUILD_GUI AND WIN32
-
 # 输出当前的配置摘要，便于构建日志查看
 message(STATUS "Configuration summary:")
 message(STATUS " USE_PCL = ${USE_PCL}")
@@ -499,21 +521,7 @@ message(STATUS " USE_QT = ${USE_QT}")
 message(STATUS " USE_LIVOX = ${USE_LIVOX}")
 message(STATUS " BUILD_GUI = ${BUILD_GUI}")
 message(STATUS " BUILD_HEADLESS = ${BUILD_HEADLESS}")
+message(STATUS " ENABLE_TRANSLATIONS = ${ENABLE_TRANSLATIONS}")
 message(STATUS " PCL_DIR = ${PCL_DIR}")
 message(STATUS " QT_DIR = ${QT_DIR}")
 message(STATUS " LIVOX_SDK2_ROOT = ${LIVOX_SDK2_ROOT}")
-
-# 安装规则：将可执行文件安装到目标的 `bin` 目录（用于 make/installer 步骤）
-if(BUILD_GUI)
-install(TARGETS linger_perceiver RUNTIME DESTINATION bin)
-
-# 复制配置文件到输出目录
-add_custom_command(TARGET linger_perceiver POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-	"${CMAKE_SOURCE_DIR}/mid360_config.json"
-	"$<TARGET_FILE_DIR:linger_perceiver>/mid360_config.json"
-	COMMENT "Copying mid360_config.json to output directory"
-)
-endif()
-
-

@@ -19,10 +19,6 @@ namespace Linger {
  * @brief 应用配置结构体，用于保存滤波器参数、日志设置等
  */
 struct AppConfig {
-    // --- 日志配置 ---
-    std::string log_file = "log.txt";
-    std::string log_level = "info";
-
     // --- 距离滤波器 (Distance Filter) ---
     float distance_min = 0.1f;
     float distance_max = 100.0f;
@@ -83,8 +79,16 @@ struct AppConfig {
     bool edge_enabled = true;
 
     // --- 时序滤波 (Temporal Filter) ---
-    float temporal_max_jump = 2.0f;
-    bool temporal_enabled = true;
+    // 注意：时序滤波是 DockingAlgorithm 的内部参数，不在 UI 中暴露
+    // 用于抑制靠泊距离的异常跳变
+    float temporal_max_jump = 2.0f;     // 允许的最大距离跳变(m)
+    bool temporal_enabled = true;       // 是否启用时序滤波
+
+    // --- UDP 通信 (Docking Publisher) ---
+    std::string udp_target_ip = "127.0.0.1";
+    uint16_t udp_target_port = 5000;
+    uint8_t udp_sensor_id = 1;  // 1=前, 2=左舷, 3=右舷
+    bool udp_enabled = false;
 };
 
 /**

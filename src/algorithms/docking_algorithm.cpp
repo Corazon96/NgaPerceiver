@@ -69,8 +69,6 @@ void DockingAlgorithm::reset()
     has_previous_nearest_ = false;
     has_previous_edge_ = false;
     filter_.reset();
-    previous_cloud_.reset();
-    previous_timestamp_ns_ = 0;
     last_valid_edge_line_ = Line2D{};
     has_valid_edge_history_ = false;
 }
@@ -398,79 +396,6 @@ DockEdgeResult DockingAlgorithm::detectDockEdge(const std::vector<PointCloudPtr>
     return result;
 }
 
-bool DockingAlgorithm::fitLineRansac(const std::vector<std::pair<float, float>>& points,
-                                      const DockEdgeConfig& cfg,
-                                      Line2D& line,
-                                      std::vector<size_t>& inliers)
-{
-    if (points.size() < 2) return false;
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<size_t> dist(0, points.size() - 1);
-
-    Line2D best_line;
-    std::vector<size_t> best_inliers;
-    size_t best_count = 0;
-
-    for (int iter = 0; iter < cfg.ransac_max_iterations; ++iter) {
-        // 随机选择两个不同的点
-        size_t idx1 = dist(gen);
-        size_t idx2 = dist(gen);
-        while (idx2 == idx1) {
-            idx2 = dist(gen);
-        }
-
-        float x1 = points[idx1].first;
-        float y1 = points[idx1].second;
-        float x2 = points[idx2].first;
-        float y2 = points[idx2].second;
-
-        // 计算直线参数 Ax + By + C = 0
-        float dx = x2 - x1;
-        float dy = y2 - y1;
-        
-        float len = std::sqrt(dx * dx + dy * dy);
-        if (len < 1e-6f) continue;
-
-        Line2D candidate;
-        candidate.a = dy / len;
-        candidate.b = -dx / len;
-        candidate.c = -(candidate.a * x1 + candidate.b * y1);
-
-        // 计算内点
-        std::vector<size_t> current_inliers;
-        for (size_t i = 0; i < points.size(); ++i) {
-            float d = std::abs(pointToLineDistance(points[i].first, points[i].second, candidate));
-            if (d < cfg.ransac_distance_threshold) {
-                current_inliers.push_back(i);
-            }
-        }
-
-        if (current_inliers.size() > best_count) {
-            best_count = current_inliers.size();
-            best_line = candidate;
-            best_inliers = std::move(current_inliers);
-        }
-
-        // 提前终止
-        float inlier_ratio = static_cast<float>(best_count) / points.size();
-        if (inlier_ratio > 0.8f) {
-            break;
-        }
-    }
-
-    // 检查内点比例
-    float inlier_ratio = static_cast<float>(best_count) / points.size();
-    if (inlier_ratio < cfg.ransac_min_inlier_ratio) {
-        return false;
-    }
-
-    line = best_line;
-    inliers = std::move(best_inliers);
-    return true;
-}
-
 void DockingAlgorithm::refineLine(const std::vector<std::pair<float, float>>& points,
                                    const std::vector<size_t>& inliers,
                                    Line2D& line)
@@ -751,8 +676,22 @@ void DockingAlgorithm::updateTemporalFilter(DockingState& state)
         if (filter_.consecutive_jump_frames > 3) {
             LOG_WARN("[Docking/Temporal] Consecutive jumps: {}, reinitializing", 
                      filter_.consecutive_jump_frames);
-            filter_.initialized = false;
-            updateTemporalFilter(state); // 递归调用进行重新初始化
+            
+            // 直接重新初始化，避免递归调用
+            filter_.predicted_dist = state.final_distance_m;
+            filter_.predicted_velocity = 0.0f;
+            filter_.dist_error_cov = 1.0f;
+            filter_.predicted_angle = state.final_angle_deg;
+            filter_.predicted_angle_rate = 0.0f;
+            filter_.angle_error_cov = 10.0f;
+            filter_.consecutive_valid_frames = 1;
+            filter_.consecutive_invalid_frames = 0;
+            filter_.consecutive_jump_frames = 0;
+            filter_.stability_score = 0.0f;
+            filter_.last_update_ns = state.timestamp_ns;
+            
+            LOG_DEBUG("[Docking/Temporal] Reinitialized: dist={:.2f}m, angle={:.1f}°", 
+                      state.final_distance_m, state.final_angle_deg);
             return;
         }
         
@@ -861,254 +800,6 @@ DockEdgeConfig DockingAlgorithm::getEdgeConfig() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return config_.edge;
-}
-
-//=============================================================================
-// Layer 1: 预处理（动静分离、密度过滤、平面检测）
-// 注意：预处理功能已重构为独立的 Filter 类：
-//   - DensityFilter (preprocessing/density_filter.h): 密度过滤
-//   - MotionFilter (preprocessing/motion_filter.h): 动静分离
-// 以下实现保留用于兼容性，建议在 Processor 管线中使用上述 Filter
-//=============================================================================
-
-DockingAlgorithm::PreprocessResult DockingAlgorithm::preprocessClouds(const std::vector<PointCloudPtr>& clouds)
-{
-    PreprocessResult result;
-    result.static_cloud = std::make_shared<PointCloud>();
-    result.dynamic_cloud = std::make_shared<PointCloud>();
-    
-    // 1. 合并输入点云（预处理阶段需要完整视图）
-    PointCloudPtr merged = std::make_shared<PointCloud>();
-    for (const auto& cloud : clouds) {
-        if (cloud && !cloud->points.empty()) {
-            *merged += *cloud;
-        }
-    }
-    
-    if (merged->points.empty()) {
-        return result;
-    }
-    
-    // 2. 密度过滤（去除稀疏噪声）
-    PointCloudPtr dense_cloud = densityFilter(merged, 0.3f, 3);
-    result.low_density_filtered = merged->points.size() - dense_cloud->points.size();
-    
-    // 3. 动静分离
-    separateStaticDynamic(dense_cloud, result);
-    
-    // 4. 检测码头平面
-    if (result.static_cloud && !result.static_cloud->points.empty()) {
-        detectDockSurface(result.static_cloud, result);
-    }
-    
-    return result;
-}
-
-PointCloudPtr DockingAlgorithm::densityFilter(const PointCloudPtr& cloud, float voxel_size, int min_points_per_voxel)
-{
-    if (!cloud || cloud->points.empty()) {
-        return std::make_shared<PointCloud>();
-    }
-    
-    // 使用简单的体素网格统计
-    struct VoxelKey {
-        int x, y, z;
-        
-        bool operator<(const VoxelKey& other) const {
-            if (x != other.x) return x < other.x;
-            if (y != other.y) return y < other.y;
-            return z < other.z;
-        }
-    };
-    
-    std::map<VoxelKey, std::vector<size_t>> voxel_map;
-    
-    // 分配点到体素
-    for (size_t i = 0; i < cloud->points.size(); ++i) {
-        const auto& pt = cloud->points[i];
-        VoxelKey key{
-            static_cast<int>(std::floor(pt.x / voxel_size)),
-            static_cast<int>(std::floor(pt.y / voxel_size)),
-            static_cast<int>(std::floor(pt.z / voxel_size))
-        };
-        voxel_map[key].push_back(i);
-    }
-    
-    // 保留密度足够的体素中的点
-    PointCloudPtr filtered = std::make_shared<PointCloud>();
-    filtered->points.reserve(cloud->points.size());
-    
-    for (const auto& [key, indices] : voxel_map) {
-        if (static_cast<int>(indices.size()) >= min_points_per_voxel) {
-            for (size_t idx : indices) {
-                filtered->points.push_back(cloud->points[idx]);
-            }
-        }
-    }
-    
-    filtered->width = filtered->points.size();
-    filtered->height = 1;
-    filtered->is_dense = false;
-    
-    return filtered;
-}
-
-void DockingAlgorithm::separateStaticDynamic(const PointCloudPtr& cloud, PreprocessResult& result)
-{
-    if (!cloud || cloud->points.empty()) {
-        return;
-    }
-    
-    // 简化版：基于速度阈值和历史帧差分
-    // 如果没有历史帧，全部视为静态
-    if (!previous_cloud_ || previous_cloud_->points.empty()) {
-        result.static_cloud = cloud;
-        result.static_point_count = cloud->points.size();
-        result.dynamic_point_count = 0;
-        
-        // 保存当前帧供下次使用
-        previous_cloud_ = cloud;
-        return;
-    }
-    
-    // 使用简单的空间网格匹配检测运动
-    const float cell_size = 0.5f;  // 0.5米网格
-    const float motion_threshold = 0.3f;  // 运动阈值（米）
-    
-    // 构建历史帧的空间索引
-    std::map<std::tuple<int, int, int>, std::vector<Point>> history_grid;
-    for (const auto& pt : previous_cloud_->points) {
-        int gx = static_cast<int>(std::floor(pt.x / cell_size));
-        int gy = static_cast<int>(std::floor(pt.y / cell_size));
-        int gz = static_cast<int>(std::floor(pt.z / cell_size));
-        history_grid[{gx, gy, gz}].push_back(pt);
-    }
-    
-    result.static_cloud->points.reserve(cloud->points.size());
-    result.dynamic_cloud->points.reserve(cloud->points.size() / 10);  // 预计动态点较少
-    
-    // 对当前帧的每个点，检查是否与历史帧匹配
-    for (const auto& pt : cloud->points) {
-        int gx = static_cast<int>(std::floor(pt.x / cell_size));
-        int gy = static_cast<int>(std::floor(pt.y / cell_size));
-        int gz = static_cast<int>(std::floor(pt.z / cell_size));
-        
-        bool is_static = false;
-        
-        // 搜索邻近网格
-        for (int dx = -1; dx <= 1; ++dx) {
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dz = -1; dz <= 1; ++dz) {
-                    auto it = history_grid.find({gx + dx, gy + dy, gz + dz});
-                    if (it != history_grid.end()) {
-                        // 检查是否有近似匹配的点
-                        for (const auto& hist_pt : it->second) {
-                            float dist = std::sqrt(
-                                std::pow(pt.x - hist_pt.x, 2) +
-                                std::pow(pt.y - hist_pt.y, 2) +
-                                std::pow(pt.z - hist_pt.z, 2)
-                            );
-                            if (dist < motion_threshold) {
-                                is_static = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (is_static) break;
-                }
-                if (is_static) break;
-            }
-            if (is_static) break;
-        }
-        
-        if (is_static) {
-            result.static_cloud->points.push_back(pt);
-        } else {
-            result.dynamic_cloud->points.push_back(pt);
-        }
-    }
-    
-    result.static_cloud->width = result.static_cloud->points.size();
-    result.static_cloud->height = 1;
-    result.static_cloud->is_dense = false;
-    
-    result.dynamic_cloud->width = result.dynamic_cloud->points.size();
-    result.dynamic_cloud->height = 1;
-    result.dynamic_cloud->is_dense = false;
-    
-    result.static_point_count = result.static_cloud->points.size();
-    result.dynamic_point_count = result.dynamic_cloud->points.size();
-    
-    // 保存当前帧
-    previous_cloud_ = cloud;
-}
-
-void DockingAlgorithm::detectDockSurface(const PointCloudPtr& cloud, PreprocessResult& result)
-{
-    if (!cloud || cloud->points.empty() || cloud->points.size() < 100) {
-        return;
-    }
-    
-    // 简化版平面检测：寻找水平密集区域
-    // 统计 Z 轴直方图，找最密集的高度层
-    const float z_bin_size = 0.2f;  // 20cm 高度分层
-    const float horizontal_tolerance = 0.5f;  // 水平容差
-    
-    std::map<int, std::vector<Point>> z_layers;
-    
-    for (const auto& pt : cloud->points) {
-        // 只考虑前方和侧面的点（X > 0）
-        if (pt.x < 1.0f) continue;
-        
-        int z_bin = static_cast<int>(std::floor(pt.z / z_bin_size));
-        z_layers[z_bin].push_back(pt);
-    }
-    
-    // 找点数最多的层
-    int best_layer = 0;
-    size_t max_points = 0;
-    for (const auto& [layer, points] : z_layers) {
-        if (points.size() > max_points) {
-            max_points = points.size();
-            best_layer = layer;
-        }
-    }
-    
-    // 至少需要 100 个点才认为是有效平面
-    if (max_points < 100) {
-        return;
-    }
-    
-    // 计算该层的平均高度和距离
-    const auto& layer_points = z_layers[best_layer];
-    float sum_z = 0.0f;
-    float sum_dist = 0.0f;
-    
-    for (const auto& pt : layer_points) {
-        sum_z += pt.z;
-        sum_dist += std::sqrt(pt.x * pt.x + pt.y * pt.y);
-    }
-    
-    float avg_z = sum_z / layer_points.size();
-    float avg_dist = sum_dist / layer_points.size();
-    
-    // 检查该层是否足够水平（标准差小）
-    float variance_z = 0.0f;
-    for (const auto& pt : layer_points) {
-        float diff = pt.z - avg_z;
-        variance_z += diff * diff;
-    }
-    float std_dev_z = std::sqrt(variance_z / layer_points.size());
-    
-    // 如果高度标准差小于阈值，认为是水平面
-    if (std_dev_z < horizontal_tolerance) {
-        result.dock_surface_detected = true;
-        result.dock_plane_height = avg_z;
-        result.dock_plane_distance = avg_dist;
-        
-        LOG_DEBUG("[Docking/Preprocess] Dock surface detected: height={:.2f}m, dist={:.2f}m, points={}, std_dev={:.3f}",
-                  avg_z, avg_dist, max_points, std_dev_z);
-    }
 }
 
 //=============================================================================

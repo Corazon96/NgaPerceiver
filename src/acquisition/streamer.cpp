@@ -47,12 +47,16 @@ void Streamer::writeFrame(const PointCloudPtr& cloud, const Pose& pose) {
 				onWriteQueueFull();
 			}
 		}
-		write_queue_.push_back({cloud, pose});
+		// 使用花括号初始化避免额外拷贝
+		write_queue_.emplace_back(WriteTask{cloud, pose});
 	}
 	queue_cv_.notify_one();
 }
 
 void Streamer::recordWorker_() {
+	static constexpr size_t FLUSH_INTERVAL = 10;  // 每 10 帧刷新一次
+	size_t frame_count = 0;
+	
 	while (true) {
 		WriteTask task;
 		{
@@ -65,7 +69,8 @@ void Streamer::recordWorker_() {
 			
 			if (write_queue_.empty()) continue; // 虚假唤醒
 
-			task = write_queue_.front();
+			// 使用移动语义优化性能
+			task = std::move(write_queue_.front());
 			write_queue_.pop_front();
 		}
 
@@ -75,10 +80,18 @@ void Streamer::recordWorker_() {
 
 		// 1. 写入 Pose
 		ofs_.write(reinterpret_cast<const char*>(&task.pose), sizeof(Pose));
+		if (!ofs_.good()) {
+			LOG_ERROR("[Streamer] Failed to write Pose (disk full or I/O error)");
+			break;
+		}
 
 		// 2. 写入点数
 		uint32_t count = static_cast<uint32_t>(task.cloud->points.size());
 		ofs_.write(reinterpret_cast<const char*>(&count), sizeof(uint32_t));
+		if (!ofs_.good()) {
+			LOG_ERROR("[Streamer] Failed to write point count (disk full or I/O error)");
+			break;
+		}
 
 		// 3. 写入点数据
 		if (count > 0) {
@@ -90,7 +103,23 @@ void Streamer::recordWorker_() {
 				buffer_.push_back({p.x, p.y, p.z, p.intensity});
 			}
 			ofs_.write(reinterpret_cast<const char*>(buffer_.data()), count * sizeof(PackedPoint));
+			if (!ofs_.good()) {
+				LOG_ERROR("[Streamer] Failed to write point data (disk full or I/O error)");
+				break;
+			}
 		}
+		
+		// 4. 周期性刷新缓冲区（每 10 帧）
+		frame_count++;
+		if (frame_count % FLUSH_INTERVAL == 0) {
+			ofs_.flush();
+		}
+	}
+	
+	// 退出前确保所有数据落盘
+	std::lock_guard<std::mutex> lk(file_mutex_);
+	if (ofs_.is_open()) {
+		ofs_.flush();
 	}
 }
 
@@ -104,10 +133,12 @@ void Streamer::closeWrite() {
 		record_thread_.join();
 	}
 
-	// 3. 关闭文件
+	// 3. 刷新并关闭文件
 	std::lock_guard<std::mutex> lk(file_mutex_);
 	if (ofs_.is_open()) {
+		ofs_.flush();  // 确保所有缓冲数据落盘
 		ofs_.close();
+		LOG_INFO("[Streamer] Recording closed successfully.");
 	}
 }
 

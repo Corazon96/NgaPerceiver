@@ -73,7 +73,6 @@ private:
 	std::atomic<bool> running_{false};
 	std::atomic<size_t> count_{0};
 	std::function<void(const std::vector<PointCloudPtr>&, size_t)> mapUpdateCallback_;
-	std::function<void(const std::vector<std::pair<size_t, Point>> &)> incrementalUpdateCallback_;
 	/** @brief 保留时间（纳秒） */
 	std::atomic<uint64_t> retention_ns_{100000000ULL}; // 默认0.1s
 

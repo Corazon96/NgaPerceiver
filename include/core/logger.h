@@ -18,17 +18,26 @@
 #include <iomanip>
 #include <sstream>
 #include <vector>
+#include <atomic>
 
 // --- 辅助宏定义 ---
 
-/** @brief 简单的限流日志宏实现 (内部使用) */
+/** 
+ * @brief 线程安全的限流日志宏实现 (内部使用)
+ * 使用 std::atomic 确保多线程环境下的正确性
+ * 注意：为简化实现，使用 int64_t 存储纳秒时间戳
+ */
 #define LOG_THROTTLED_IMPL(level, interval_ms, ...) \
     do { \
-        static auto last_log_time_##__LINE__ = std::chrono::steady_clock::time_point::min(); \
-        auto now_##__LINE__ = std::chrono::steady_clock::now(); \
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now_##__LINE__ - last_log_time_##__LINE__).count() >= interval_ms) { \
-            spdlog::level(__VA_ARGS__); \
-            last_log_time_##__LINE__ = now_##__LINE__; \
+        static std::atomic<int64_t> last_log_time_ns_##__LINE__{0}; \
+        auto now = std::chrono::steady_clock::now(); \
+        int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count(); \
+        int64_t last_ns = last_log_time_ns_##__LINE__.load(std::memory_order_relaxed); \
+        int64_t interval_ns = static_cast<int64_t>(interval_ms) * 1000000LL; \
+        if (now_ns - last_ns >= interval_ns) { \
+            if (last_log_time_ns_##__LINE__.compare_exchange_weak(last_ns, now_ns, std::memory_order_relaxed)) { \
+                spdlog::level(__VA_ARGS__); \
+            } \
         } \
     } while(0)
 
@@ -41,11 +50,12 @@
 #define LOG_ERROR(...)    spdlog::error(__VA_ARGS__)
 #define LOG_CRITICAL(...) spdlog::critical(__VA_ARGS__)
 
-// 限流日志宏：每隔 interval_ms 毫秒最多打印一次
+// 限流日志宏：每隔 interval_ms 毫秒最多打印一次（线程安全）
+#define LOG_TRACE_THROTTLED(interval_ms, ...) LOG_THROTTLED_IMPL(trace, interval_ms, __VA_ARGS__)
+#define LOG_DEBUG_THROTTLED(interval_ms, ...) LOG_THROTTLED_IMPL(debug, interval_ms, __VA_ARGS__)
 #define LOG_INFO_THROTTLED(interval_ms, ...)  LOG_THROTTLED_IMPL(info, interval_ms, __VA_ARGS__)
 #define LOG_WARN_THROTTLED(interval_ms, ...)  LOG_THROTTLED_IMPL(warn, interval_ms, __VA_ARGS__)
 #define LOG_ERROR_THROTTLED(interval_ms, ...) LOG_THROTTLED_IMPL(error, interval_ms, __VA_ARGS__)
-#define LOG_DEBUG_THROTTLED(interval_ms, ...) LOG_THROTTLED_IMPL(debug, interval_ms, __VA_ARGS__)
 
 /**
  * @brief 日志管理器单例

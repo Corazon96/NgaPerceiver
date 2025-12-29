@@ -93,9 +93,11 @@ private:
 
 	void replayWorker_(std::string filepath);
 
+	// 数据源
 	Streamer streamer_;
+
+	// 回放线程
 	std::thread replay_thread_;
-	
 	std::atomic<bool> running_{false};
 	std::atomic<bool> paused_{false};
 	std::atomic<float> speed_{1.0f};

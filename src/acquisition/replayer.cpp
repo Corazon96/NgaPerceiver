@@ -199,10 +199,11 @@ void Replayer::replayWorker_(std::string filepath)
 	auto last_loop_time = std::chrono::steady_clock::now();
 	double current_speed = speed_.load();
 	bool eof_reached = false;
+	int frame_count = 0;  // 进度更新计数器（每次播放重置）
 
 	while (running_.load())
 	{
-		// 处理 Seek
+		// === 1. 处理 Seek 请求 ===
 		bool has_seek_request = false;
 		{
 			std::lock_guard<std::mutex> lk(seek_mutex_);
@@ -214,12 +215,13 @@ void Replayer::replayWorker_(std::string filepath)
 		if (has_seek_request) {
 			handleSeek_(start_ts_file, duration_ns, start_time_sys, current_speed, eof_reached);
 			last_loop_time = std::chrono::steady_clock::now();
-			continue;
+			continue; // Seek 后重新开始循环
 		}
 
-		// 处理暂停 和 EOF
+		// === 2. 处理暂停和 EOF ===
 		if (paused_.load() || eof_reached) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(20));
+			// 调整时间基准（暂停期间系统时间在流逝）
 			auto now = std::chrono::steady_clock::now();
 			start_time_sys += (now - last_loop_time);
 			last_loop_time = now;
@@ -227,6 +229,7 @@ void Replayer::replayWorker_(std::string filepath)
 		}
 		last_loop_time = std::chrono::steady_clock::now();
 
+		// === 3. 读取下一帧 ===
 		if (!streamer_.readFrame(cloud, pose)) {
 			if (!eof_reached) {
 				LOG_INFO("[Replayer] Replay finished (EOF).");
@@ -239,36 +242,48 @@ void Replayer::replayWorker_(std::string filepath)
 		uint64_t current_ts_file = pose.timestamp_ns;
 		double speed = speed_.load();
 		
+		// === 4. 处理倍速变化 ===
 		if (std::abs(speed - current_speed) > SPEED_EPSILON) {
 			auto now = std::chrono::steady_clock::now();
+			// 重新计算时间基准
 			uint64_t offset_ns = static_cast<uint64_t>((current_ts_file - start_ts_file) / speed);
 			start_time_sys = now - std::chrono::nanoseconds(offset_ns);
 			current_speed = speed;
 			LOG_INFO("[Replayer] Speed changed to {:.2f}.", speed);
 		}
 		
+		// === 5. 计算目标发送时间 ===
 		uint64_t delay_ns = static_cast<uint64_t>((current_ts_file - start_ts_file) / speed);
 		auto target_time = start_time_sys + std::chrono::nanoseconds(delay_ns);
 		
+		// === 6. 精确等待 ===
 		auto now_for_sleep = std::chrono::steady_clock::now();
 		if (target_time > now_for_sleep) {
 			auto remaining = target_time - now_for_sleep;
 			auto spin_threshold = std::chrono::microseconds(SPIN_WAIT_THRESHOLD_US);
+			
+			// 分段等待：先 sleep 粗等待，再忙等待精确控制
 			if (remaining > spin_threshold) {
 				std::this_thread::sleep_for(remaining - spin_threshold);
 			}
+			
+			// 忙等待：精度 < 1us，使用 yield 降低 CPU 占用
 			while (std::chrono::steady_clock::now() < target_time) {
+				std::this_thread::yield();  // 让出 CPU 时间片
 			}
 		}
 
+		// === 7. 重映射时间戳 ===
 		auto now_sys = std::chrono::system_clock::now();
 		pose.timestamp_ns = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			now_sys.time_since_epoch()).count());
 
+		// === 8. 发送帧 ===
 		if (onFrame) onFrame(cloud, pose);
 		
-		static int frame_count = 0;
-		if (++frame_count % PROGRESS_UPDATE_INTERVAL == 0) {
+		// === 9. 更新进度 ===
+		frame_count++;
+		if (frame_count % PROGRESS_UPDATE_INTERVAL == 0) {
 			if (onProgress) onProgress(current_ts_file - start_ts_file, duration_ns);
 		}
 	}

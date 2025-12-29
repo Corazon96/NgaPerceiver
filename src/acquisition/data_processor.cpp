@@ -105,16 +105,14 @@ void DataProcessor::integratePose_(const Pose& prev, Pose& cur)
 		return;
 	}
 
-	// 扣除零偏
+	// 扣除零偏（校准期间不扣除，但继续积分）
 	Eigen::Vector3f raw_gyro(cur.imu.gyro_x, cur.imu.gyro_y, cur.imu.gyro_z);
 	Eigen::Vector3f omega = raw_gyro;
 	if (is_calibrated_) {
 		omega -= gyro_bias_;
-	} else {
-		if (calibration_count_ < LingerConfig::IMU_CALIBRATION_SAMPLES) {
-			omega.setZero(); 
-		}
 	}
+	// 注意：校准期间不扣除零偏，但仍然使用原始陀螺仪数据进行姿态积分
+	// 这样可以避免启动时设备运动导致的姿态积累误差
 
 	// 死区过滤
 	if (omega.norm() < LingerConfig::IMU_DEADZONE_THRESHOLD) {
@@ -251,11 +249,16 @@ void DataProcessor::addImuSample(uint64_t timestamp_ns, const IMUData &imu)
 		s.qw = 1.0f;
 	}
 
-	// 5. 插入并重算后续
+	// 5. 插入并重算后续（仅在乱序时才需要重算）
 	imu_samples_.insert(imu_samples_.begin() + idx, s);
-	for (size_t j = idx + 1; j < imu_samples_.size(); ++j)
+	// 优化：只有当插入位置不是队尾时才需要重算后续样本
+	// 正常情况下 IMU 顺序到达，idx == size，无需重算
+	if (idx < imu_samples_.size() - 1)
 	{
-		integratePose_(imu_samples_[j - 1], imu_samples_[j]);
+		for (size_t j = idx + 1; j < imu_samples_.size(); ++j)
+		{
+			integratePose_(imu_samples_[j - 1], imu_samples_[j]);
+		}
 	}
 	
 	// 6. 保持容量限制
@@ -328,10 +331,6 @@ bool DataProcessor::getPoseAt(uint64_t timestamp_ns, Pose &out_pose, uint64_t ma
 
 	const Pose &s_lo = imu_samples_[lo];
 	const Pose &s_hi = imu_samples_[hi];
-	if (hi >= imu_samples_.size())
-	{
-		return false;
-	}
 
 	uint64_t t_lo = s_lo.timestamp_ns;
 	uint64_t t_hi = s_hi.timestamp_ns;

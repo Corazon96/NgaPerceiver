@@ -308,10 +308,10 @@ private:
 	// --- 帧队列与线程 ---
 	
 	/** 
-	 * @brief 原始数据帧队列 (SPSC lock-free)
+	 * @brief 原始 UDP 数据包队列 (SPSC lock-free)
 	 * 生产者：SDK 回调线程（enqueuePacket）
 	 * 消费者：frameDispatcher_ 线程
-	 * 容量：LingerConfig::FRAME_QUEUE_SIZE (2048, 约 1 秒缓冲)
+	 * 容量：LingerConfig::FRAME_QUEUE_SIZE (2048, 典型速率 200-1000 包/秒，提供约 2-10 秒缓冲)
 	 */
 	SpscRingBuffer<RawPacket> frame_queue_{LingerConfig::FRAME_QUEUE_SIZE};
 	

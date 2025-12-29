@@ -18,11 +18,8 @@
 #include <QCoreApplication>
 #include <QVTKOpenGLNativeWidget.h>
 
-// VTK 输出窗口控制（禁用警告弹窗）
 #include <vtkOutputWindow.h>
 #include <vtkFileOutputWindow.h>
-
-// VTK 渲染头文件
 #include <vtkNew.h>
 #include <vtkGenericOpenGLRenderWindow.h>
 #include <vtkSmartPointer.h>
@@ -39,8 +36,6 @@
 #include <vtkFloatArray.h>
 #include <vtkIdTypeArray.h>
 #include <vtkCamera.h>
-
-// 额外 VTK头，用于网格、同心圆与标�?
 #include <vtkCellArray.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkRenderWindow.h>
@@ -48,20 +43,17 @@
 #include <vtkFollower.h>
 #include <vtkAxesActor.h>
 #include <vtkOrientationMarkerWidget.h>
-
-// 新增用于角注�?文本与色条的头文�?
 #include <vtkTextActor.h>
 #include <vtkTextProperty.h>
 #include <vtkScalarBarActor.h>
 #include <vtkLookupTable.h>
 #include <vtkOutlineSource.h>
 
-/** @brief 自适应并行策略 */
 static const size_t PARALLEL_THRESHOLD = LingerConfig::RENDERER_PARALLEL_THRESHOLD;
 
 struct Renderer::Impl
 {
-	// �?Processor 发布的最新地图快�?
+	// Processor 发布的最新地图快照
 	std::vector<PointCloudPtr> latestMapSnapshot;
 	std::mutex snapshotMutex;
 
@@ -76,30 +68,30 @@ struct Renderer::Impl
 	vtkSmartPointer<vtkPolyDataMapper> mapper;
 	vtkSmartPointer<vtkActor> actor;
 
-	// ROI 可视�?
+	// ROI 可视化
 	vtkSmartPointer<vtkOutlineSource> roiOutline;
 	vtkSmartPointer<vtkPolyDataMapper> roiMapper;
 	vtkSmartPointer<vtkActor> roiActor;
 
 	// 靠泊检测可视化
-	// 最近区域扇区（蓝色线框�?
+	// 最近区域扇区（蓝色线框）
 	vtkSmartPointer<vtkOutlineSource> nearestSectorOutline;
 	vtkSmartPointer<vtkPolyDataMapper> nearestSectorMapper;
 	vtkSmartPointer<vtkActor> nearestSectorActor;
 	bool nearestSectorVisible = true;
 	
-	// 码头边缘检测区域（黄色线框�?
+	// 码头边缘检测区域（黄色线框）
 	vtkSmartPointer<vtkOutlineSource> edgeRegionOutline;
 	vtkSmartPointer<vtkPolyDataMapper> edgeRegionMapper;
 	vtkSmartPointer<vtkActor> edgeRegionActor;
 	bool edgeRegionVisible = false;
 	
-	// 边缘直线可视化（绿色�?
+	// 边缘直线可视化（绿色）
 	vtkSmartPointer<vtkPolyData> edgeLinePoly;
 	vtkSmartPointer<vtkPolyDataMapper> edgeLineMapper;
 	vtkSmartPointer<vtkActor> edgeLineActor;
 	
-	// 最近区域距离指示（蓝色圆弧�?
+	// 最近区域距离指示（蓝色圆弧）
 	vtkSmartPointer<vtkPolyData> nearestArcPoly;
 	vtkSmartPointer<vtkPolyDataMapper> nearestArcMapper;
 	vtkSmartPointer<vtkActor> nearestArcActor;
@@ -107,7 +99,7 @@ struct Renderer::Impl
 	// 靠泊信息文本
 	vtkSmartPointer<vtkTextActor> dockingInfoActor;
 	
-	// 状态缓�?
+	// 状态缓冲
 	Linger::DockingState pendingDockingState;
 	bool hasPendingDockingState = false;
 	std::mutex dockingStateMutex;
@@ -118,7 +110,7 @@ struct Renderer::Impl
 	vtkSmartPointer<vtkPolyData> ringsPoly;
 	vtkSmartPointer<vtkActor> ringsActor;
 	std::vector<vtkSmartPointer<vtkFollower>> ringLabels;
-	// 角落坐标轴和文本、色�?
+	// 角落坐标轴和文本、色条
 	vtkSmartPointer<vtkAxesActor> axesActor;
 	vtkSmartPointer<vtkOrientationMarkerWidget> axesWidget;
 	vtkSmartPointer<vtkTextActor> infoTextActor;
@@ -126,7 +118,7 @@ struct Renderer::Impl
 	vtkSmartPointer<vtkLookupTable> scalarLUT;
 	// 独立的标题文本，用于控制与色条之间的间距
 	vtkSmartPointer<vtkTextActor> scalarTitleActor;
-	// 独立�?FPS 文本
+	// 独立的 FPS 文本
 	vtkSmartPointer<vtkTextActor> fpsTextActor;
 
 	// 渲染工作线程相关
@@ -148,7 +140,7 @@ struct Renderer::Impl
 		size_t pointCount = 0;
 		size_t filteredCount = 0;
 
-		// 初始�?重置数据结构
+		// 初始化并重置数据结构
 		void initialize() {
 			if (!points) points = vtkSmartPointer<::vtkPoints>::New();
 			if (!verts) verts = vtkSmartPointer<vtkCellArray>::New();
@@ -167,7 +159,7 @@ struct Renderer::Impl
 		}
 	};
 	
-    // 对象池：保存不再使用�?RenderData 以便复用
+    // 对象池：保存不再使用的 RenderData 以便复用
 	std::vector<RenderData> bufferPool;
 	std::mutex poolMutex;
 
@@ -184,16 +176,10 @@ struct Renderer::Impl
 	int frameCount = 0;
 	double currentFPS = 0.0;
 
-	// FPS 控制相关
-	// 将最小间隔设置为 25ms (相当�?40FPS 的上�?�?
-	// 上游 Processor �?30ms (33FPS) 生产�?
-	// 下游 Renderer �?25ms 为阈值进行限流�?
-	// 因为 33ms > 25ms，正常的 30FPS 帧都能顺利通过�?
-	// 只有当出现异常的高频抖动 (<25ms) 时才会丢帧�?
-	// 这样既避免了"拍频干扰"导致的掉帧，又防止了过高 FPS�?
+	// FPS 控制：最小间隔 25ms (40 FPS 上限)，配合上游 30 FPS 避免拍频干扰
 	const double minFrameIntervalMs = LingerConfig::RENDERER_MIN_FRAME_INTERVAL_MS; 
 	std::chrono::steady_clock::time_point lastSubmitTime;
-	std::chrono::steady_clock::time_point renderScheduleTime; // 记录上次调度渲染的时间，用于检测卡�?
+	std::chrono::steady_clock::time_point renderScheduleTime;
 
 	// 获取一个可用的缓冲区（从池中取或新建）
 	RenderData getFreeBuffer() {
@@ -208,17 +194,17 @@ struct Renderer::Impl
 		return newData;
 	}
 
-	// 回收缓冲�?
+	// 回收缓冲区
 	void recycleBuffer(RenderData& data) {
 		if (!data.points) return; // 空数据不回收
 		std::lock_guard<std::mutex> lock(poolMutex);
 		bufferPool.push_back(data);
 	}
 
-	// 防止渲染事件堆积的标�?
+	// 防止渲染事件堆积的标志
 	std::atomic<bool> renderScheduled{false};
 
-	// 渲染一帧（�?UI 线程调用�?
+	// 渲染一帧（UI 线程调用）
 	void renderFrame()
 	{
 		// 使用 RAII 确保 renderScheduled 最终被重置
@@ -229,8 +215,7 @@ struct Renderer::Impl
 		} guard(renderScheduled);
 
 		try {
-			// LOG_DEBUG("[Renderer] renderFrame start");
-			auto startRender = std::chrono::steady_clock::now();
+
 
 			RenderData newData;
 			bool shouldUpdate = false;
@@ -238,10 +223,10 @@ struct Renderer::Impl
 				std::lock_guard<std::mutex> lock(nextFrameMutex);
 				if (hasNextFrame) {
 					newData = nextFrameData;
-					// nextFrameData 已被移走，重置标�?
+					// nextFrameData 已被移走，重置标志
 					hasNextFrame = false;
 					// 注意：这里不清除 nextFrameData 的内容，只是标记为已取走
-					// 真正的对象所有权已经转移�?newData
+					// 真正的对象所有权已经转移到 newData
 					shouldUpdate = true;
 				}
 			}
@@ -249,10 +234,10 @@ struct Renderer::Impl
 			if (shouldUpdate)
 			{
 				if (newData.points) {
-					// 1. 回收上一帧的数据到池�?
+					// 1. 回收上一帧的数据到池中
 					recycleBuffer(currentRenderData);
 
-					// 2. 应用新数�?
+					// 2. 应用新数据
 					currentRenderData = newData;
 
 					polyData->SetPoints(currentRenderData.points);
@@ -263,19 +248,19 @@ struct Renderer::Impl
 					// 执行渲染
 					renderWindow->Render();
 
-					// 计算渲染耗时�?FPS
+					// 计算渲染耗时及 FPS
 					auto endRender = std::chrono::steady_clock::now();
 
 					frameCount++;
 					std::chrono::duration<double> elapsed = endRender - lastFrameTime;
-					if (elapsed.count() >= 1.0) // 每秒更新一�?FPS
+					if (elapsed.count() >= 1.0) // 每秒更新一次 FPS
 					{
 						currentFPS = static_cast<double>(frameCount) / elapsed.count();
 						frameCount = 0;
 						lastFrameTime = endRender;
 					}
 
-					// 更新左下角信息文�?(仅点�?
+					// 更新左下角信息文本(仅点云)
 					if (infoTextActor)
 					{
 						size_t totalPts = currentRenderData.pointCount;
@@ -289,7 +274,7 @@ struct Renderer::Impl
 						infoTextActor->SetInput(buf);
 					}
 
-					// 更新右上�?FPS 文本
+					// 更新右上角 FPS 文本
 					if (fpsTextActor)
 					{
 						char buf[256];
@@ -305,15 +290,15 @@ struct Renderer::Impl
 			LOG_ERROR("[Renderer] Unknown exception in renderFrame");
 		}
 		
-		// renderScheduled 将由 guard 的析构函数重�?
+		// renderScheduled 将由 guard 的析构函数重置
 	}
 };
 
 Renderer::Renderer() : pimpl(new Impl())
 {
-	// 禁用 VTK 警告弹窗（重定向到日志或完全静默）
-	vtkOutputWindow::SetInstance(nullptr);  // 禁用所有 VTK 输出窗口
-	vtkObject::GlobalWarningDisplayOff();   // 禁用全局警告显示
+	// 禁用 VTK 警告弹窗
+	vtkOutputWindow::SetInstance(nullptr);
+	vtkObject::GlobalWarningDisplayOff();
 
 	// 启动渲染工作线程
 	pimpl->workerRunning = true;
@@ -340,7 +325,7 @@ Renderer::Renderer() : pimpl(new Impl())
 
 			if (currentMap.empty()) continue;
 
-			// --- 执行繁重�?VTK 数据准备 ---
+			// --- 执行繁重的 VTK 数据准备 ---
 			// 使用缓冲池复用内存，避免频繁 new/delete
 			Impl::RenderData data = pimpl->getFreeBuffer();
 			
@@ -364,11 +349,11 @@ Renderer::Renderer() : pimpl(new Impl())
 				data.vertsArray->SetNumberOfValues(static_cast<vtkIdType>(total_n + 1));
 				vtkIdType* idsBase = data.vertsArray->WritePointer(0, static_cast<vtkIdType>(total_n + 1));
 				*idsBase = static_cast<vtkIdType>(total_n); // 第一个元素是点数
-				vtkIdType* idsData = idsBase + 1; // 实际索引数据开始位�?
+				vtkIdType* idsData = idsBase + 1; // 实际索引数据开始位置
 				
 				if (total_n < PARALLEL_THRESHOLD)
 				{
-					// --- 单线程路�?---
+					// --- 单线程路径 ---
 					float* cPtr = coordsBase;
 					unsigned char* colPtr = colorsBase;
 					vtkIdType* iPtr = idsData;
@@ -430,7 +415,7 @@ Renderer::Renderer() : pimpl(new Impl())
 				data.verts->SetCells(0, data.vertsArray);
 			}
 
-			// 将准备好的数据存�?nextFrameData
+			// 将准备好的数据存入 nextFrameData
 			{
 				std::lock_guard<std::mutex> lock(pimpl->nextFrameMutex);
 				if (pimpl->hasNextFrame) {
@@ -495,7 +480,7 @@ void Renderer::init(QWidget *parent)
 		pimpl->mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
 		pimpl->actor = vtkSmartPointer<vtkActor>::New();
 
-		// 这需�?PolyData 中包�?Verts 拓扑结构
+		// 这需要 PolyData 中包含 Verts 拓扑结构
 		pimpl->mapper->SetInputData(pimpl->polyData);
 		
 		pimpl->mapper->SetColorModeToDefault();
@@ -524,11 +509,8 @@ void Renderer::init(QWidget *parent)
 		pimpl->roiActor->PickableOff();
 		pimpl->renderer->AddActor(pimpl->roiActor);
 
-		// ====================================================================
-		// 靠泊检测可视化初始�?
-		// ====================================================================
-		
-		// 最近区域扇区（蓝色线框�?
+		// 靠泊检测可视化初始化
+		// 最近区域扇区（蓝色线框）
 		pimpl->nearestSectorOutline = vtkSmartPointer<vtkOutlineSource>::New();
 		pimpl->nearestSectorOutline->SetBounds(0, 50, -15, 15, -1, 10);
 		pimpl->nearestSectorMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
@@ -542,7 +524,7 @@ void Renderer::init(QWidget *parent)
 		pimpl->nearestSectorActor->PickableOff();
 		pimpl->renderer->AddActor(pimpl->nearestSectorActor);
 		
-		// 码头边缘检测区域（黄色线框�?
+		// 码头边缘检测区域（黄色线框）
 		pimpl->edgeRegionOutline = vtkSmartPointer<vtkOutlineSource>::New();
 		pimpl->edgeRegionOutline->SetBounds(0, 30, -15, 15, 0.3, 1.5);
 		pimpl->edgeRegionMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
@@ -556,7 +538,7 @@ void Renderer::init(QWidget *parent)
 		pimpl->edgeRegionActor->PickableOff();
 		pimpl->renderer->AddActor(pimpl->edgeRegionActor);
 		
-		// 边缘直线可视化（绿色粗线�?
+		// 边缘直线可视化（绿色粗线
 		pimpl->edgeLinePoly = vtkSmartPointer<vtkPolyData>::New();
 		pimpl->edgeLineMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
 		pimpl->edgeLineMapper->SetInputData(pimpl->edgeLinePoly);
@@ -568,7 +550,7 @@ void Renderer::init(QWidget *parent)
 		pimpl->edgeLineActor->PickableOff();
 		pimpl->renderer->AddActor(pimpl->edgeLineActor);
 		
-		// 最近区域距离指示（蓝色圆弧�?
+		// 最近区域距离指示（蓝色圆弧）
 		pimpl->nearestArcPoly = vtkSmartPointer<vtkPolyData>::New();
 		pimpl->nearestArcMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
 		pimpl->nearestArcMapper->SetInputData(pimpl->nearestArcPoly);
@@ -580,58 +562,31 @@ void Renderer::init(QWidget *parent)
 		pimpl->nearestArcActor->PickableOff();
 		pimpl->renderer->AddActor(pimpl->nearestArcActor);
 
-		// 靠泊信息文本（左下方�?
+		// 靠泊信息文本（左下方）
 		pimpl->dockingInfoActor = vtkSmartPointer<vtkTextActor>::New();
 		pimpl->dockingInfoActor->SetInput("Docking: --");
 		pimpl->dockingInfoActor->GetTextProperty()->SetFontSize(16);
 		pimpl->dockingInfoActor->GetTextProperty()->SetColor(0.0, 1.0, 0.3);
 		pimpl->dockingInfoActor->GetTextProperty()->SetFontFamilyToCourier();
 		pimpl->dockingInfoActor->GetTextProperty()->BoldOn();
-		pimpl->dockingInfoActor->SetDisplayPosition(10, 80);  // 左下方偏�?
+		pimpl->dockingInfoActor->SetDisplayPosition(10, 80);  // 左下方偏上
 		pimpl->dockingInfoActor->SetVisibility(false);
 		pimpl->renderer->AddActor2D(pimpl->dockingInfoActor);
 
-		// 创建世界坐标网格与坐标轴（红/绿）
+		// 创建世界坐标网格（每 10m 一条辅助线）
 		pimpl->gridPoly = vtkSmartPointer<vtkPolyData>::New();
 		vtkSmartPointer<vtkPoints> gridPts = vtkSmartPointer<vtkPoints>::New();
 		vtkSmartPointer<vtkCellArray> gridLines = vtkSmartPointer<vtkCellArray>::New();
 
-		// 轴线：X (�? �?-100..100, Y (�? �?-100..100
-		// 优化：仅绘制网格线，不绘制中心轴线（由彩色轴线替代）
-		// vtkIdType id0 = gridPts->InsertNextPoint(-100.0, 0.0, 0.0);
-		// vtkIdType id1 = gridPts->InsertNextPoint(100.0, 0.0, 0.0);
-		// vtkSmartPointer<vtkCellArray> axesLines = vtkSmartPointer<vtkCellArray>::New();
-		// axesLines->InsertNextCell(2);
-		// axesLines->InsertCellPoint(id0);
-		// axesLines->InsertCellPoint(id1);
-
-		// vtkIdType id2 = gridPts->InsertNextPoint(0.0, -100.0, 0.0);
-		// vtkIdType id3 = gridPts->InsertNextPoint(0.0, 100.0, 0.0);
-		// axesLines->InsertNextCell(2);
-		// axesLines->InsertCellPoint(id2);
-		// axesLines->InsertCellPoint(id3);
-
-		// pimpl->gridPoly->SetPoints(gridPts);
-		// pimpl->gridPoly->SetLines(axesLines);
-		
-		// 重新构建纯网格（不含轴线�?
-		// 假设我们想要一个简单的网格背景，或者直接跳�?gridPoly 的轴线部�?
-		// 这里简单起见，我们只保留彩色轴线，不再重复绘制白色轴线
-		// 如果需要绘制其他网格线（如�?0m一条），可以在这里添加循环
-		
-		// 为了保持代码结构，我们创建一个空�?gridPoly 或者仅包含非轴线的网格
-		// 这里演示添加�?10m 的辅助网格线（灰色）
-		// vtkSmartPointer<vtkCellArray> gridLines = vtkSmartPointer<vtkCellArray>::New(); // 移除重复定义
 		for (int i = -100; i <= 100; i += 10) {
-			if (i == 0) continue; // 跳过轴线
-			// 平行�?Y 轴的�?
+			if (i == 0) continue;
+
 			vtkIdType p1 = gridPts->InsertNextPoint(i, -100, 0);
 			vtkIdType p2 = gridPts->InsertNextPoint(i, 100, 0);
 			vtkSmartPointer<vtkIdList> line1 = vtkSmartPointer<vtkIdList>::New();
 			line1->InsertNextId(p1); line1->InsertNextId(p2);
 			gridLines->InsertNextCell(line1);
 
-			// 平行�?X 轴的�?
 			vtkIdType p3 = gridPts->InsertNextPoint(-100, i, 0);
 			vtkIdType p4 = gridPts->InsertNextPoint(100, i, 0);
 			vtkSmartPointer<vtkIdList> line2 = vtkSmartPointer<vtkIdList>::New();
@@ -646,11 +601,10 @@ void Renderer::init(QWidget *parent)
 		pimpl->gridActor = vtkSmartPointer<vtkActor>::New();
 		pimpl->gridActor->SetMapper(gridMapper);
 		pimpl->gridActor->GetProperty()->SetLineWidth(1.0);
-		pimpl->gridActor->GetProperty()->SetColor(0.3, 0.3, 0.3); // 深灰色网�?
+		pimpl->gridActor->GetProperty()->SetColor(0.3, 0.3, 0.3);
 		pimpl->renderer->AddActor(pimpl->gridActor);
 
-		// 我们通过创建两个 actor 来分别给轴着色：创建有色副本
-		// 需要重新定义轴线的端点，因�?gridPts 现在包含了网格点
+		// 创建彩色坐标轴（X: 红色，Y: 绿色）
 		vtkSmartPointer<vtkPoints> axisPts = vtkSmartPointer<vtkPoints>::New();
 		axisPts->InsertNextPoint(-100, 0, 0);
 		axisPts->InsertNextPoint(100, 0, 0);
@@ -659,7 +613,6 @@ void Renderer::init(QWidget *parent)
 
 		vtkSmartPointer<vtkPolyData> xPoly = vtkSmartPointer<vtkPolyData>::New();
 		xPoly->SetPoints(axisPts);
-		// 使用第一�?cell 创建 X轴线�?
 		vtkSmartPointer<vtkCellArray> xLine = vtkSmartPointer<vtkCellArray>::New();
 		xLine->InsertNextCell(2);
 		xLine->InsertCellPoint(0);
@@ -669,8 +622,8 @@ void Renderer::init(QWidget *parent)
 		xMapper->SetInputData(xPoly);
 		vtkSmartPointer<vtkActor> xActor = vtkSmartPointer<vtkActor>::New();
 		xActor->SetMapper(xMapper);
-		xActor->GetProperty()->SetColor(1.0, 0.0, 0.0); // 红色
-		xActor->GetProperty()->SetLineWidth(2.0); // 加粗主轴
+		xActor->GetProperty()->SetColor(1.0, 0.0, 0.0);
+		xActor->GetProperty()->SetLineWidth(2.0);
 		pimpl->renderer->AddActor(xActor);
 
 		vtkSmartPointer<vtkPolyData> yPoly = vtkSmartPointer<vtkPolyData>::New();
@@ -684,11 +637,11 @@ void Renderer::init(QWidget *parent)
 		yMapper->SetInputData(yPoly);
 		vtkSmartPointer<vtkActor> yActor = vtkSmartPointer<vtkActor>::New();
 		yActor->SetMapper(yMapper);
-		yActor->GetProperty()->SetColor(0.0, 1.0, 0.0); // 绿色
-		yActor->GetProperty()->SetLineWidth(2.0); // 加粗主轴
+		yActor->GetProperty()->SetColor(0.0, 1.0, 0.0);
+		yActor->GetProperty()->SetLineWidth(2.0);
 		pimpl->renderer->AddActor(yActor);
 
-		// --- 创建每隔20m同心环，直到100m ---
+		// 创建同心圆环（每 20m 一个，带距离标签）
 		pimpl->ringsPoly = vtkSmartPointer<vtkPolyData>::New();
 		vtkSmartPointer<vtkPoints> ringPts = vtkSmartPointer<vtkPoints>::New();
 		vtkSmartPointer<vtkCellArray> ringLines = vtkSmartPointer<vtkCellArray>::New();
@@ -703,13 +656,13 @@ void Renderer::init(QWidget *parent)
 				double y = r * std::sin(ang);
 				ringPts->InsertNextPoint(x, y, 0.0);
 			}
-			// 为该环创建折�?cell
+			// 为该环创建折线 cell
 			vtkSmartPointer<vtkIdList> idList = vtkSmartPointer<vtkIdList>::New();
 			for (int s = 0; s <= segments; ++s)
 				idList->InsertNextId(startId + s);
 			ringLines->InsertNextCell(idList);
 
-			// �?(r,0,0)处创�?D文本标签
+			// 在 (r,0,0) 处创建 3D 文本标签
 			vtkSmartPointer<vtkVectorText> txt = vtkSmartPointer<vtkVectorText>::New();
 			std::string lbl = std::to_string(r) + "m";
 			txt->SetText(lbl.c_str());
@@ -735,7 +688,7 @@ void Renderer::init(QWidget *parent)
 
 		pimpl->renderer->ResetCamera();
 
-		// 设置初始摄像机视角（倾斜俯视�?
+		// 设置初始摄像机视角（倾斜俯视）
 		{
 			auto cam = pimpl->renderer->GetActiveCamera();
 			if (cam)
@@ -761,11 +714,11 @@ void Renderer::init(QWidget *parent)
 
 		// 左下角坐标系
 		pimpl->axesActor = vtkSmartPointer<vtkAxesActor>::New();
-		// 调整轴标签大�?
+		// 调整轴标签大小
 		pimpl->axesActor->SetTotalLength(1.0, 1.0, 1.0);
 		pimpl->axesActor->SetShaftTypeToCylinder();
 		pimpl->axesActor->SetAxisLabels(true);
-		// 只有在有 interactor 时启�?widget
+		// 只有在有 interactor 时启用 widget
 		if (pimpl->renderWindow && pimpl->renderWindow->GetInteractor())
 		{
 			pimpl->axesWidget = vtkSmartPointer<vtkOrientationMarkerWidget>::New();
@@ -776,11 +729,11 @@ void Renderer::init(QWidget *parent)
 			pimpl->axesWidget->InteractiveOff();
 		}
 
-		// --- 新增:右下角反射率色彩�?(scalar bar) ---
+		// --- 新增:右下角反射率色彩条 (scalar bar) ---
 		pimpl->scalarLUT = vtkSmartPointer<vtkLookupTable>::New();
 		pimpl->scalarLUT->SetNumberOfTableValues(256);
 		pimpl->scalarLUT->Build();
-		// 将我们自定义�?intensityToRGB 用于填充 LUT
+		// 将我们自定义的 intensityToRGB 用于填充 LUT
 		for (int i = 0; i < 256; ++i)
 		{
 			Linger::Color c = Linger::IntensityToRGB(static_cast<float>(i) / 255.0f);
@@ -797,44 +750,40 @@ void Renderer::init(QWidget *parent)
 		pimpl->scalarBar->SetHeight(0.35);
 		pimpl->renderer->AddActor(pimpl->scalarBar);
 
-		// 如果支持 vtkTextActor，用单独的文�?actor 放置标题于色条上方以增加间距控制
+		// 标量条标题
 		pimpl->scalarTitleActor = vtkSmartPointer<vtkTextActor>::New();
 		pimpl->scalarTitleActor->SetInput("Reflectivity");
 		pimpl->scalarTitleActor->GetTextProperty()->SetFontSize(20);
 		pimpl->scalarTitleActor->GetTextProperty()->SetColor(1.0, 1.0, 1.0);
 		pimpl->scalarTitleActor->GetTextProperty()->SetItalic(1);
 		pimpl->scalarTitleActor->GetTextProperty()->SetJustificationToCentered();
-		// 使用归一化视口坐标定位到色条上方（以给定�?margin 控制间距�?
 		pimpl->scalarTitleActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedViewport();
-		const double barX = 0.92;	// �?scalarBar X
-		const double barY = 0.08;	// scalarBar Y
-		const double barH = 0.35;	// scalarBar 高度
-		const double margin = 0.01; // 标题与色条的垂直间距
-		// 将标题放在色条中心上�?
+		const double barX = 0.92;
+		const double barY = 0.08;
+		const double barH = 0.35;
+		const double margin = 0.01;
 		const double titleX = barX + (pimpl->scalarBar->GetWidth() / 2.0);
 		const double titleY = barY + barH + margin;
 		pimpl->scalarTitleActor->SetPosition(titleX, titleY);
 		pimpl->renderer->AddActor2D(pimpl->scalarTitleActor);
 
-		// --- 恢复: 左下角点数文�?(白色) ---
+		// 左下角点数文本
 		pimpl->infoTextActor = vtkSmartPointer<vtkTextActor>::New();
 		pimpl->infoTextActor->GetTextProperty()->SetFontSize(20);
-		pimpl->infoTextActor->GetTextProperty()->SetColor(1.0, 1.0, 1.0); // 白色
+		pimpl->infoTextActor->GetTextProperty()->SetColor(1.0, 1.0, 1.0);
 		pimpl->infoTextActor->SetInput("Points Num:0 Filtered Points Num:0 (0%)");
 		pimpl->infoTextActor->SetDisplayPosition(10, 10);
 		pimpl->renderer->AddActor2D(pimpl->infoTextActor);
 
-		// --- 新增: 右上�?FPS 文本 (绿色) ---
+		// 右上角 FPS 文本
 		pimpl->fpsTextActor = vtkSmartPointer<vtkTextActor>::New();
 		pimpl->fpsTextActor->GetTextProperty()->SetFontSize(20);
-		pimpl->fpsTextActor->GetTextProperty()->SetColor(0.0, 1.0, 0.0); // 绿色
+		pimpl->fpsTextActor->GetTextProperty()->SetColor(0.0, 1.0, 0.0);
 		pimpl->fpsTextActor->SetInput("FPS: 0.0  FrameTime: 0.0 ms");
-		
-		// 设置对齐方式为右上角
 		pimpl->fpsTextActor->GetTextProperty()->SetJustificationToRight();
 		pimpl->fpsTextActor->GetTextProperty()->SetVerticalJustificationToTop();
 		
-		// 使用归一化视口坐标定位到右上�?
+		// 使用归一化视口坐标定位到右上角
 		pimpl->fpsTextActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedViewport();
 		pimpl->fpsTextActor->SetPosition(0.99, 0.99);
 		
@@ -856,10 +805,8 @@ void Renderer::submitMap(const std::vector<PointCloudPtr>& map, size_t filtered_
 		pimpl->latestMapSnapshot = map;
 	}
 
-	// 使用 QMetaObject::invokeMethod �?UI 线程触发渲染更新
 	if (pimpl->widget)
 	{
-		// FPS 控制：限制提交频�?
 		auto now = std::chrono::steady_clock::now();
 		std::chrono::duration<double, std::milli> diff = now - pimpl->lastSubmitTime;
 		if (diff.count() < pimpl->minFrameIntervalMs)
@@ -883,7 +830,7 @@ void Renderer::submitMap(const std::vector<PointCloudPtr>& map, size_t filtered_
 			pimpl->workerCv.notify_one();
 		}
 		else {
-			// 检测是否卡�?(超过 1�?
+			// 检测是否卡顿(超过 1s)
 			auto now = std::chrono::steady_clock::now();
 			if (std::chrono::duration_cast<std::chrono::milliseconds>(now - pimpl->renderScheduleTime).count() > 1000)
 			{
@@ -971,7 +918,7 @@ void Renderer::setDockingVisible(bool nearest_visible, bool edge_visible)
 	QMetaObject::invokeMethod(static_cast<QWidget*>(pimpl->widget), [this, nearest_visible, edge_visible]() {
 		if (!pimpl) return;
 		
-		// 控制扇区可视�?
+		// 控制扇区可视性
 		if (pimpl->nearestSectorActor) {
 			pimpl->nearestSectorActor->SetVisibility(nearest_visible && pimpl->nearestSectorVisible ? 1 : 0);
 		}
@@ -979,7 +926,7 @@ void Renderer::setDockingVisible(bool nearest_visible, bool edge_visible)
 			pimpl->edgeRegionActor->SetVisibility(edge_visible && pimpl->edgeRegionVisible ? 1 : 0);
 		}
 		
-		// 控制结果可视�?
+		// 控制结果可视性
 		if (!nearest_visible && pimpl->nearestArcActor) {
 			pimpl->nearestArcActor->SetVisibility(false);
 		}
@@ -1007,11 +954,10 @@ void Renderer::updateDocking(const Linger::DockingState& state)
 		pimpl->hasPendingDockingState = true;
 	}
 
-	// 通过 Qt 事件循环�?UI 线程更新
+	// 通过 Qt 事件循环到 UI 线程更新
 	QMetaObject::invokeMethod(static_cast<QWidget*>(pimpl->widget), [this, state]() {
 		if (!pimpl || !pimpl->dockingInfoActor) return;
 
-		// ===== 最近区域距离可视化 =====
 		if (state.nearest.valid && pimpl->nearestArcActor && pimpl->nearestArcPoly) {
 			// 绘制距离圆弧
 			vtkSmartPointer<vtkPoints> arcPoints = vtkSmartPointer<vtkPoints>::New();
@@ -1020,8 +966,8 @@ void Renderer::updateDocking(const Linger::DockingState& state)
 			float radius = state.nearest.distance_m;
 			float z_draw = 0.2f;
 			int num_segments = 60;
-			float arc_start = -M_PI / 3;  // -60 �?
-			float arc_end = M_PI / 3;     // +60 �?
+			float arc_start = -M_PI / 3;
+			float arc_end = M_PI / 3;
 			
 			for (int i = 0; i <= num_segments; ++i) {
 				float angle = arc_start + (arc_end - arc_start) * i / num_segments;
@@ -1030,13 +976,11 @@ void Renderer::updateDocking(const Linger::DockingState& state)
 				arcPoints->InsertNextPoint(x, y, z_draw);
 			}
 			
-			// 连接圆弧�?
 			for (int i = 0; i < num_segments; ++i) {
 				vtkIdType ids[2] = {i, i + 1};
 				arcLines->InsertNextCell(2, ids);
 			}
 			
-			// 添加指向最近点的指示线
 			vtkIdType center_id = arcPoints->InsertNextPoint(0, 0, z_draw);
 			vtkIdType nearest_id = arcPoints->InsertNextPoint(state.nearest.nearest_x, state.nearest.nearest_y, z_draw);
 			vtkIdType line_ids[2] = {center_id, nearest_id};
@@ -1046,18 +990,16 @@ void Renderer::updateDocking(const Linger::DockingState& state)
 			pimpl->nearestArcPoly->SetLines(arcLines);
 			pimpl->nearestArcPoly->Modified();
 			
-			// 根据置信度设置颜�?
 			if (state.nearest.confidence >= 50) {
-				pimpl->nearestArcActor->GetProperty()->SetColor(0.2, 0.8, 1.0);  // 浅蓝
+				pimpl->nearestArcActor->GetProperty()->SetColor(0.2, 0.8, 1.0);
 			} else {
-				pimpl->nearestArcActor->GetProperty()->SetColor(1.0, 1.0, 0.0);  // 黄色
+				pimpl->nearestArcActor->GetProperty()->SetColor(1.0, 1.0, 0.0);
 			}
 			pimpl->nearestArcActor->SetVisibility(pimpl->nearestSectorVisible ? 1 : 0);
 		} else if (pimpl->nearestArcActor) {
 			pimpl->nearestArcActor->SetVisibility(false);
 		}
 		
-		// ===== 码头边缘可视�?=====
 		if (state.edge.valid && pimpl->edgeLineActor && pimpl->edgeLinePoly) {
 			vtkSmartPointer<vtkPoints> linePoints = vtkSmartPointer<vtkPoints>::New();
 			vtkSmartPointer<vtkCellArray> lineCells = vtkSmartPointer<vtkCellArray>::New();
@@ -1074,33 +1016,29 @@ void Renderer::updateDocking(const Linger::DockingState& state)
 			pimpl->edgeLinePoly->Modified();
 
 			if (state.edge.confidence >= 50) {
-				pimpl->edgeLineActor->GetProperty()->SetColor(0.0, 1.0, 0.0);  // 绿色
+				pimpl->edgeLineActor->GetProperty()->SetColor(0.0, 1.0, 0.0);
 			} else {
-				pimpl->edgeLineActor->GetProperty()->SetColor(1.0, 1.0, 0.0);  // 黄色
+				pimpl->edgeLineActor->GetProperty()->SetColor(1.0, 1.0, 0.0);
 			}
 			pimpl->edgeLineActor->SetVisibility(pimpl->edgeRegionVisible ? 1 : 0);
 		} else if (pimpl->edgeLineActor) {
 			pimpl->edgeLineActor->SetVisibility(false);
 		}
 
-		// ===== 更新文本信息 =====
 		char info_buf[512];
 		
 		if (state.nearest.valid && state.edge.valid) {
-			// 两者都有效：显示融合结果和各自的评分
 			snprintf(info_buf, sizeof(info_buf), 
 				"Final: %.2fm | Nearest: %.2fm (cont:%.2f, conf:%d%%) | Edge: %.2fm/%.1f° (geo:%.2f, conf:%d%%)",
 				state.final_distance_m,
 				state.nearest.distance_m, state.nearest.continuity_score, state.nearest.confidence,
 				state.edge.distance_m, state.edge.angle_deg, state.edge.geometry_score, state.edge.confidence);
 		} else if (state.nearest.valid) {
-			// 仅最近区域有效
 			snprintf(info_buf, sizeof(info_buf), 
 				"Nearest: %.2fm  (cont:%.2f, used:%zu/%zu, conf:%d%%)",
 				state.nearest.distance_m, state.nearest.continuity_score,
 				state.nearest.used_points, state.nearest.point_count, state.nearest.confidence);
 		} else if (state.edge.valid) {
-			// 仅边缘检测有效
 			snprintf(info_buf, sizeof(info_buf), 
 				"Edge: %.2fm / %.1f°  (geo:%.2f, inliers:%zu/%zu, conf:%d%%)",
 				state.edge.distance_m, state.edge.angle_deg, state.edge.geometry_score,

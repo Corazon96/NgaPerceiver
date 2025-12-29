@@ -15,8 +15,9 @@ class QPushButton;
 class QComboBox;
 class QSlider;
 class QLabel;
+class QGroupBox;
 
-/** @brief 生成�?UI 类的前向声明 */
+/// Qt Designer 生成的 UI 类前向声明
 namespace Ui
 {
 	class PointCloudWgt;
@@ -30,35 +31,30 @@ public:
 	explicit PointCloudWgt(QWidget *parent = nullptr);
 	~PointCloudWgt();
 
-	/** @brief 返回 QWidget* 以保持类型安全，调用者可以使�?qobject_cast 转换�?QVTKOpenGLNativeWidget�?*/
+	/// 返回 VTK Widget（调用者可用 qobject_cast 转换为 QVTKOpenGLNativeWidget）
 	QWidget *getVtkWidget() const { return vtkWidget_; }
 
-	/** @brief 获取 Renderer 实例 */
+	/// 获取 Renderer 实例
 	std::shared_ptr<Renderer> getRenderer() const { return renderer_; }
 
-	/** @brief 设置滤波�?UI 初始值（从配置加载后调用�?*/
+	/// 设置滤波器 UI 初始值（从配置加载后调用）
 	void setFilterValues(double dist_min, double dist_max, bool dist_enabled,
 						 double roi_xmin, double roi_xmax, double roi_ymin, double roi_ymax, double roi_zmin, double roi_zmax, bool roi_enabled,
 						 double sea_z, double sea_margin, bool sea_enabled,
 						 int outlier_k, double outlier_stddev, bool outlier_enabled,
 						 double voxel_size, bool voxel_enabled);
-	/** @brief 设置 Docking 检测 UI 初始值（从配置加载后调用）*/
+	/// 设置靠泊检测 UI 初始值（从配置加载后调用）
 	void setDockingValues(double nr_xmin, double nr_xmax, double nr_ymin, double nr_ymax, double nr_zmin, double nr_zmax,
 	                      double nr_percentile, bool nr_enabled,
 	                      double edge_xmin, double edge_xmax, double edge_ymin, double edge_ymax,
 	                      double edge_zmin, double edge_zmax, double edge_ransac, bool edge_enabled);
 signals:
-	/** @brief 当用户在 UI 中改变帧积分时长（单位毫秒）时发�?*/
-	void retentionChanged(int ms);
-	/** @brief 当用户在 UI 中改变点大小（单位像素）时发�?*/
-	void pointSizeChanged(int size);
-	/** @brief 当用户在 UI 中改变最小距离（单位米）时发�?*/
-	void minDistChanged(double val);
-	/** @brief 当用户在 UI 中改变最大距离（单位米）时发�?*/
-	void maxDistChanged(double val);
-	/** @brief 当用户在 UI 中改变体素大小（单位米）时发�?*/
-	void voxelSizeChanged(double val);
-	/** @brief 当用户在 UI 中改变体素滤波器是否启用时发�?*/
+	// === 滤波器参数变化信号 ===
+	void retentionChanged(int ms);        ///< 帧积分时长变化（毫秒）
+	void pointSizeChanged(int size);      ///< 点大小变化（像素）
+	void minDistChanged(double val);      ///< 最小距离变化（米）
+	void maxDistChanged(double val);      ///< 最大距离变化（米）
+	void voxelSizeChanged(double val);    ///< 体素大小变化（米）
 	void voxelEnabledChanged(bool enabled);
 	void distEnabledChanged(bool enabled);
 	void roiBoundsChanged(double x_min, double x_max, double y_min, double y_max, double z_min, double z_max);
@@ -83,7 +79,7 @@ signals:
 	void nearestPercentileChanged(double pct);
 	void nearestEnabledChanged(bool enabled);
 	
-	// 靠泊检测信�?- 码头边缘检�?
+	// 靠泊检测信号 - 码头边缘检测
 	void edgeSectorChanged(double x_min, double x_max, double y_min, double y_max, double z_min, double z_max);
 	void edgeRansacDistChanged(double dist);
 	void edgeEnabledChanged(bool enabled);
@@ -119,6 +115,10 @@ public slots:
 
 private slots:
 	void updateRecordTime();
+#ifdef ENABLE_TRANSLATIONS
+	void setupLanguageSelector();
+	void retranslateCustomWidgets();
+#endif
 
 private:
 	std::unique_ptr<Ui::PointCloudWgt> ui;
@@ -143,4 +143,11 @@ private:
 	
 	bool isDeviceConnected_ = false;
 	bool isAcquiring_ = false;
+	std::vector<DeviceInfo> cachedDevices_; // 缓存设备列表，用于语言切换时刷新
+
+#ifdef ENABLE_TRANSLATIONS
+	QComboBox* comboLanguage_ = nullptr;
+	QGroupBox* langGroup_ = nullptr;
+	QLabel* lblLang_ = nullptr;
+#endif
 };

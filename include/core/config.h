@@ -22,40 +22,41 @@ namespace LingerConfig {
 
     // --- DeviceManager 配置 ---
     
+    // 时间同步参数
     /** @brief 最小有效时间戳 (纳秒)，早于 2000-01-01 00:00:00 UTC 的时间戳视为无效 */
     inline constexpr uint64_t MIN_VALID_EPOCH_NS = 946684800000000000ULL;
-    
-    /** @brief IMU 校准样本数（约 1-2 秒，取决于 IMU 频率） */
-    inline constexpr int IMU_CALIBRATION_SAMPLES = 200;
-    
-    /** @brief 姿态插值最大容差 (纳秒) */
-    inline constexpr uint64_t POSE_INTERPOLATION_MAX_DELTA_NS = 20000000ULL; // 20ms
-
-    /** @brief 帧队列大小 (2000Hz 采样率下，2048 约等于 1秒的缓冲) */
-    inline constexpr size_t FRAME_QUEUE_SIZE = 2048;
-
-    /** @brief IMU 样本队列容量 (200Hz下，4000 约等于 20秒的缓冲) */
-    inline constexpr size_t IMU_SAMPLE_CAPACITY = 4000;
-
     /** @brief 时间同步漂移阈值 (纳秒)，超过此值触发重新同步 */
     inline constexpr int64_t TIME_SYNC_DRIFT_THRESHOLD_NS = 10000000000LL; // 10秒
 
-    /** @brief IMU 重力校正最小加速度 (g) */
-    inline constexpr float IMU_GRAVITY_CORRECTION_MIN_ACC = 0.9f;
-    /** @brief IMU 重力校正最大加速度 (g) */
-    inline constexpr float IMU_GRAVITY_CORRECTION_MAX_ACC = 1.1f;
-    /** @brief IMU 重力校正增益 (alpha) */
-    inline constexpr float IMU_GRAVITY_CORRECTION_ALPHA = 0.01f;
+    // IMU 校准参数
+    /** @brief IMU 校准样本数（约 1-2 秒，取决于 IMU 频率） */
+    inline constexpr int IMU_CALIBRATION_SAMPLES = 200;
     /** @brief IMU 死区阈值 (rad/s) */
     inline constexpr float IMU_DEADZONE_THRESHOLD = 1e-4f;
-
     /** @brief IMU 小角度阈值 (rad) */
     inline constexpr double IMU_SMALL_ANGLE_THRESHOLD = 1e-12;
+
+    // 重力校正参数（运行时持续校正姿态漂移，宽容度较高，允许运动状态）
+    /** @brief IMU 重力校正最小加速度 (g) - 运行时重力方向校正的加速度范围 */
+    inline constexpr float IMU_GRAVITY_CORRECTION_MIN_ACC = 0.9f;
+    /** @brief IMU 重力校正最大加速度 (g) - 运行时重力方向校正的加速度范围 */
+    inline constexpr float IMU_GRAVITY_CORRECTION_MAX_ACC = 1.1f;
+    /** @brief IMU 重力校正增益 (alpha) - 互补滤波融合系数（1% 加速度计 + 99% 陀螺仪） */
+    inline constexpr float IMU_GRAVITY_CORRECTION_ALPHA = 0.01f;
     
-    /** @brief IMU 静止检测：最大角速度 (rad/s) */
+    // 静止检测参数（仅启动校准阶段使用，要求严格静止，同时满足角速度和加速度条件）
+    /** @brief IMU 静止检测：最大角速度 (rad/s) - 用于陀螺仪零偏校准时的静止判断 */
     inline constexpr float IMU_STATIC_GYRO_THRESHOLD = 0.5f;
-    /** @brief IMU 静止检测：最大加速度偏差 (g) */
+    /** @brief IMU 静止检测：最大加速度偏差 (g) - 用于陀螺仪零偏校准时的静止判断 */
     inline constexpr float IMU_STATIC_ACC_DEVIATION = 0.3f;
+
+    // 姿态与队列参数
+    /** @brief 姿态插值最大容差 (纳秒) */
+    inline constexpr uint64_t POSE_INTERPOLATION_MAX_DELTA_NS = 20000000ULL; // 20ms
+    /** @brief UDP 数据包队列大小（Mid-360 典型速率 200-1000 包/秒，2048 提供约 2-10 秒缓冲） */
+    inline constexpr size_t FRAME_QUEUE_SIZE = 2048;
+    /** @brief IMU 样本队列容量 (200Hz 下，1000 提供约 5 秒缓冲，足够姿态插值查询) */
+    inline constexpr size_t IMU_SAMPLE_CAPACITY = 1000;
 
     /** @brief 是否启用点云姿态变换（将点云从雷达坐标系变换到世界坐标系）
      *  - true: 点云变换到世界坐标系（雷达旋转时，世界中的物体保持静止）
@@ -66,6 +67,7 @@ namespace LingerConfig {
 
 
     // --- Streamer 配置 ---
+
     /** @brief 录制写入队列大小 */
     inline constexpr size_t STREAMER_QUEUE_SIZE = 5000;
 
@@ -91,6 +93,7 @@ namespace LingerConfig {
     inline constexpr float FILTER_DISTANCE_MIN_DEFAULT = 0.1f;
     /** @brief 距离滤波器默认最大值 (m) */
     inline constexpr float FILTER_DISTANCE_MAX_DEFAULT = 100.0f;
+
     /** @brief 体素滤波器默认大小 (m) */
     inline constexpr float FILTER_VOXEL_SIZE_DEFAULT = 0.1f;
 

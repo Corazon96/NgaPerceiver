@@ -82,9 +82,24 @@ DeviceManager::DeviceManager()
 
 DeviceManager::~DeviceManager()
 {
-	stop();
+	// 关键：必须先停止回放线程，再停止设备管理
+	// 因为回放线程的 lambda 捕获了 this，会访问 onFrameWithPose 等成员
 	stopReplay(); 
 	stopRecording();
+	
+	// 清空所有回调函数，防止析构过程中被意外调用
+	onFrameWithPose = nullptr;
+	onReplayProgress = nullptr;
+	onReplayFinished = nullptr;
+	onError = nullptr;
+	onRecordingFinished = nullptr;
+	onRecordingDrop = nullptr;
+	onInfo = nullptr;
+	onDeviceListUpdated = nullptr;
+	
+	// 等待回放/录制完全停止后，再停止设备管理
+	// 此时 replayer_ 的线程已经完全退出，不会再访问 DeviceManager 的成员
+	stop();
 }
 
 static bool IsPointCloudDataType(uint8_t type) {
@@ -640,9 +655,6 @@ void DeviceManager::stop()
 	SetLivoxLidarPointCloudCallBack(nullptr, nullptr);
 	SetLivoxLidarInfoChangeCallback(nullptr, nullptr);
 
-	{
-		std::lock_guard<std::mutex> lk(frame_cv_mutex_);
-	}
 	frame_cv_.notify_all();
 
 	if (frame_worker_.joinable())
@@ -661,9 +673,6 @@ void DeviceManager::enqueuePacket(const uint8_t* data, size_t length, uint64_t t
 
 	if (frame_queue_.push(pkt))
 	{
-		{
-			std::lock_guard<std::mutex> lk(frame_cv_mutex_);
-		}
 		frame_cv_.notify_one();
 	}
 	else
@@ -716,10 +725,7 @@ void DeviceManager::frameDispatcher_()
 
 			LOG_WARN_THROTTLED(2000, "[DeviceManager] Warning: Failed to find matching Pose for timestamp {}. Fallback to last known pose.", qf.timestamp_ns);
 		}
-		else 
-		{
-			pose.timestamp_ns = qf.timestamp_ns;
-		}
+		// 注意：getPoseAt 成功时已经设置了 pose.timestamp_ns，无需再次赋值
 
 		try
 		{

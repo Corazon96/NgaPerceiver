@@ -17,9 +17,14 @@
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QCheckBox>
+#include <QGroupBox>
 
 #include "visualization/camera_interactor.h"
 #include "visualization/renderer.h"
+
+#ifdef ENABLE_TRANSLATIONS
+#include "core/translation_manager.h"
+#endif
 
 PointCloudWgt::PointCloudWgt(QWidget *parent)
 	: QWidget(parent), ui(std::make_unique<Ui::PointCloudWgt>())
@@ -46,11 +51,11 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 	QVBoxLayout* leftLayout = new QVBoxLayout(leftContainer);
 	leftLayout->setContentsMargins(0, 0, 0, 0);
 	
-	// 2. 从原布局中移�?vtk_wgt_ 并添加到新布局
+	// 2. 从原布局中移除 vtk_wgt_ 并添加到新布局
 	ui->horizontalLayout->removeWidget(vtkWidget_);
 	leftLayout->addWidget(vtkWidget_, 1); // stretch = 1
 
-	// 3. 创建回放控制�?
+	// 3. 创建回放控制条控件
 	replayControlWidget_ = new QWidget(this);
 	QHBoxLayout* replayLayout = new QHBoxLayout(replayControlWidget_);
 	replayLayout->setContentsMargins(4, 4, 4, 4);
@@ -78,26 +83,24 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 	replayLayout->addWidget(lblTime_);
 	replayLayout->addWidget(sliderProgress_, 1); // Expand slider
 
-	// 4. 添加到左侧布局并默认隐�?
+	// 4. 添加到左侧布局并默认隐藏
 	leftLayout->addWidget(replayControlWidget_);
 	replayControlWidget_->setVisible(false);
 
 	// 5. 将容器放回主布局
-	ui->horizontalLayout->insertWidget(0, leftContainer, 3); // stretch = 3 (保持原比�?
+	ui->horizontalLayout->insertWidget(0, leftContainer, 3); // stretch = 3 (保持原比例)
 
 	// --- 连接回放控制信号 ---
 	connect(btnPlayPause_, &QPushButton::toggled, this, [this](bool checked) {
 		if (isReplayFinished_) {
-			// 如果回放已结束，点击按钮（此�?checked 变为 false，因为之前被设为 true/Paused�?
-			// 我们希望重新开始播放：跳转到开头并继续
+			// 回放结束后点击，重新开始播放
 			isReplayFinished_ = false;
 			emit replaySeekRequested(0.0);
 			emit replayPauseRequested(false);
-			btnPlayPause_->setText("Pause");
-			// 注意：此�?checked 已经�?false 了，所以不需要再 setChecked(false)
+			btnPlayPause_->setText(tr("Pause"));
 			return;
 		}
-		btnPlayPause_->setText(checked ? "Resume" : "Pause");
+		btnPlayPause_->setText(checked ? tr("Resume") : tr("Pause"));
 		emit replayPauseRequested(checked);
 	});
 
@@ -110,7 +113,7 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 		isSliderPressed_ = true;
 	});
 	
-	// 拖动时实时更�?(Scrubbing)
+	// 拖动时实时更新进度 (Scrubbing)
 	connect(sliderProgress_, &QSlider::valueChanged, this, [this](int value) {
 		if (isSliderPressed_) {
 			double progress = static_cast<double>(value) / 1000.0;
@@ -120,13 +123,9 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 
 	connect(sliderProgress_, &QSlider::sliderReleased, this, [this]() {
 		isSliderPressed_ = false;
-		// 释放时再发送一次，确保最终位置准�?
 		double progress = static_cast<double>(sliderProgress_->value()) / 1000.0;
 		emit replaySeekRequested(progress);
 	});
-	
-	// 点击跳转 (Slider 默认不支持点击跳转，这里简单处理拖动结�?
-	// 如果需要点击跳转，需要重�?QSlider 或使�?eventFilter，这里暂只支持拖动释放跳�?
 
 	// 内部信号连接，用于跨线程更新 UI
 	qRegisterMetaType<uint64_t>("uint64_t");
@@ -135,37 +134,35 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 	connect(this, &PointCloudWgt::recordingDroppedSignal, this, &PointCloudWgt::onRecordingDropped, Qt::QueuedConnection);
 	connect(this, &PointCloudWgt::recordingFinishedSignal, this, &PointCloudWgt::onRecordingFinished, Qt::QueuedConnection);
 
-
-	/** @brief 连接 retention 下拉框到信号 */
+	// 连接 retention 下拉框到信号
 	if (ui->retentionCombo)
 	{
-		// 使用常量数组初始化选项，确�?UI 显示与逻辑一�?
+		// 使用 kRetentionValues 常量初始化选项
 		ui->retentionCombo->clear();
 		for (int ms : kRetentionValues) {
 			ui->retentionCombo->addItem(QString("%1").arg(ms));
 		}
-		// 默认选中第一�?
 		if (ui->retentionCombo->count() > 0) {
 			ui->retentionCombo->setCurrentIndex(0);
 		}
 
 		QObject::connect(ui->retentionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int idx)
-						 {
+		{
 			if (idx >= 0 && idx < static_cast<int>(kRetentionValues.size())) {
 				emit retentionChanged(kRetentionValues[idx]);
 			}
 		});
 	}
 
-	/** @brief 连接 sizeCombo 下拉框到信号 */
+	// 连接 sizeCombo 下拉框到信号
 	if (ui->sizeCombo)
 	{
 		QObject::connect(ui->sizeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int idx)
-						 {
-			// 索引 0 -> 1px, 1 -> 2px, ...
-			int size = idx + 1;
+		{
+			int size = idx + 1; // 索引 0 -> 1px, 1 -> 2px, ...
 			if (renderer_) renderer_->setPointSize(size);
-			emit pointSizeChanged(size); });
+			emit pointSizeChanged(size);
+		});
 	}
 
 	// 连接 Min Dist SpinBox
@@ -212,7 +209,7 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 						 { emit voxelEnabledChanged(checked); });
 	}
 
-	// ROI 参数与开�?
+	// ROI 参数与开关
 	if (ui->roiXMinSpin && ui->roiXMaxSpin && ui->roiYMinSpin && ui->roiYMaxSpin && ui->roiZMinSpin && ui->roiZMaxSpin)
 	{
 		auto emitRoi = [this]() {
@@ -233,7 +230,7 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 		QObject::connect(ui->roiEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit roiEnabledChanged(checked); });
 	}
 
-	// 海面滤除参数与开�?
+	// 海面滤除参数与开关
 	if (ui->seaLevelSpin)
 	{
 		QObject::connect(ui->seaLevelSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [this](double v){ emit seaLevelChanged(v); });
@@ -320,7 +317,7 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 		QObject::connect(ui->nearestEnableCheck, &QCheckBox::toggled, [this](bool checked){ emit nearestEnabledChanged(checked); });
 	}
 
-	// 码头边缘检测参数与开�?
+	// 码头边缘检测参数与开关
 	if (ui->edgeXMinSpin && ui->edgeXMaxSpin && ui->edgeYMinSpin && ui->edgeYMaxSpin && ui->edgeZMinSpin && ui->edgeZMaxSpin)
 	{
 		auto emitEdgeSector = [this]() {
@@ -367,17 +364,17 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 	if (ui->btnStart) connect(ui->btnStart, &QPushButton::clicked, this, &PointCloudWgt::startAcquisitionRequested);
 	if (ui->btnStop) connect(ui->btnStop, &QPushButton::clicked, this, &PointCloudWgt::stopAcquisitionRequested);
 
-	// Connect Record/Replay Buttons
+	// 录制/回放按钮
 	recordTimer_ = new QTimer(this);
 	connect(recordTimer_, &QTimer::timeout, this, &PointCloudWgt::updateRecordTime);
 
 	if (ui->btnRecord) {
 		connect(ui->btnRecord, &QPushButton::toggled, this, [this](bool checked){
 			if (checked) {
-				// 检查是否正在采�?
+				// 检查是否正在采集
 				if (!isAcquiring_) {
-					QMessageBox::warning(this, "Recording Error", "Cannot start recording: No device is acquiring data.\nPlease start acquisition first.");
-					// 阻止信号以避免递归调用
+					QMessageBox::warning(this, tr("Recording Error"), tr("Cannot start recording: No device is acquiring data.\nPlease start acquisition first."));
+				// 阻止信号以避免递归
 					{
 						const QSignalBlocker blocker(ui->btnRecord);
 						ui->btnRecord->setChecked(false);
@@ -390,23 +387,19 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 				if (!path.isEmpty()) {
 					emit startRecordingRequested(path.toStdString());
 					
-					// 更新 UI 状�?
-					ui->btnRecord->setText("Stop Recording");
-					// 设置红色背景警示正在录制
+					ui->btnRecord->setText(tr("Stop Recording"));
 					ui->btnRecord->setStyleSheet("QPushButton { background-color: #ff4444; color: white; border: 1px solid #cc0000; border-radius: 4px; padding: 4px; } QPushButton:hover { background-color: #ff6666; }");
 					
 					recordStartTime_ = QTime::currentTime();
-					recordTimer_->start(1000); // 每秒更新一�?
-					updateRecordTime(); // 立即更新一�?
+					recordTimer_->start(1000); // 每秒更新一次
+					updateRecordTime(); // 立即更新一次
 				} else {
 					ui->btnRecord->setChecked(false); // Cancelled
 				}
 			} else {
 				emit stopRecordingRequested();
-				
-				// 更新 UI 状态为正在保存
-				ui->btnRecord->setText("Saving...");
-				ui->btnRecord->setEnabled(false); // 禁止重复点击
+				ui->btnRecord->setText(tr("Saving..."));
+				ui->btnRecord->setEnabled(false);
 				recordTimer_->stop();
 			}
 		});
@@ -417,8 +410,8 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 			if (checked) {
 				// 检查是否有设备连接
 				if (isDeviceConnected_) {
-					QMessageBox::warning(this, "Replay Error", "Cannot start replay: A device is currently connected.\nPlease disconnect the device first.");
-					// 阻止信号以避免递归调用
+					QMessageBox::warning(this, tr("Replay Error"), tr("Cannot start replay: A device is currently connected.\nPlease disconnect the device first."));
+					// 阻止信号以避免递归
 					{
 						const QSignalBlocker blocker(ui->btnReplay);
 						ui->btnReplay->setChecked(false);
@@ -430,28 +423,108 @@ PointCloudWgt::PointCloudWgt(QWidget *parent)
 				if (!path.isEmpty()) {
 					currentReplayPath_ = path.toStdString();
 					emit startReplayRequested(currentReplayPath_);
-					// 显示控制条，重置状�?
 					replayControlWidget_->setVisible(true);
 					btnPlayPause_->setChecked(false);
-					btnPlayPause_->setText("Pause");
-					comboSpeed_->setCurrentIndex(1); // 1.0x
+					btnPlayPause_->setText(tr("Pause"));
+					comboSpeed_->setCurrentIndex(1);
 					isReplayFinished_ = false;
 				} else {
 					ui->btnReplay->setChecked(false); // Cancelled
 				}
 			} else {
 				emit stopReplayRequested();
-				// 隐藏控制�?
+				// 隐藏控制条
 				replayControlWidget_->setVisible(false);
 			}
 		});
 	}
+
+#ifdef ENABLE_TRANSLATIONS
+	// --- 语言切换控件 ---
+	setupLanguageSelector();
+#endif
 }
+
+#ifdef ENABLE_TRANSLATIONS
+void PointCloudWgt::setupLanguageSelector()
+{
+	// 创建语言选择组
+	langGroup_ = new QGroupBox(tr("Language"), this);
+	QHBoxLayout* langLayout = new QHBoxLayout(langGroup_);
+	langLayout->setContentsMargins(4, 4, 4, 4);
+	
+	lblLang_ = new QLabel(tr("UI Language:"), langGroup_);
+	comboLanguage_ = new QComboBox(langGroup_);
+	
+	// 添加支持的语言
+	auto languages = TranslationManager::supportedLanguages();
+	for (const auto& lang : languages) {
+		comboLanguage_->addItem(lang.second, lang.first);
+	}
+	
+	// 设置当前语言
+	QString currentLang = TranslationManager::instance().currentLanguage();
+	int idx = comboLanguage_->findData(currentLang);
+	if (idx >= 0) {
+		comboLanguage_->setCurrentIndex(idx);
+	}
+	
+	langLayout->addWidget(lblLang_);
+	langLayout->addWidget(comboLanguage_, 1);
+	
+	// 将语言组添加到右侧控件区域 (在设备管理下方)
+	if (ui->ctl_wgt_ && ui->ctl_wgt_->layout()) {
+		QGridLayout* gridLayout = qobject_cast<QGridLayout*>(ui->ctl_wgt_->layout());
+		if (gridLayout) {
+			// 在最后添加一行
+			int rowCount = gridLayout->rowCount();
+			gridLayout->addWidget(langGroup_, rowCount, 0, 1, 2);
+		}
+	}
+	
+	// 连接语言切换信号
+	connect(comboLanguage_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+		QString langCode = comboLanguage_->itemData(index).toString();
+		TranslationManager::instance().setLanguage(langCode);
+		TranslationManager::instance().saveToConfig();
+	});
+	
+	// 连接翻译变化信号以动态刷新 UI
+	connect(&TranslationManager::instance(), &TranslationManager::languageChanged, this, [this](const QString&) {
+		ui->retranslateUi(this);
+		retranslateCustomWidgets();
+	});
+}
+
+void PointCloudWgt::retranslateCustomWidgets()
+{
+	// 刷新动态创建的控件文本
+	if (btnPlayPause_) {
+		if (isReplayFinished_) {
+			btnPlayPause_->setText(tr("Replay"));
+		} else {
+			btnPlayPause_->setText(btnPlayPause_->isChecked() ? tr("Resume") : tr("Pause"));
+		}
+	}
+	if (langGroup_) {
+		langGroup_->setTitle(tr("Language"));
+	}
+	if (lblLang_) {
+		lblLang_->setText(tr("UI Language:"));
+	}
+	
+	// 刷新设备列表以更新状态文本翻译
+	if (!cachedDevices_.empty()) {
+		updateDeviceList(cachedDevices_);
+	}
+}
+#endif
 
 PointCloudWgt::~PointCloudWgt() = default;
 
 void PointCloudWgt::updateDeviceList(const std::vector<DeviceInfo>& devices)
 {
+	cachedDevices_ = devices; // 缓存设备列表，用于语言切换时刷新
 	ui->deviceListWidget->clear();
 	isDeviceConnected_ = false;
 	isAcquiring_ = false;
@@ -466,9 +539,9 @@ void PointCloudWgt::updateDeviceList(const std::vector<DeviceInfo>& devices)
 
 		QString status;
 		if (dev.is_connected) {
-			status = dev.is_acquiring ? "Acquiring" : "Connected";
+			status = dev.is_acquiring ? tr("Acquiring") : tr("Connected");
 		} else {
-			status = "Disconnected";
+			status = tr("Disconnected");
 		}
 		QString label = QString("%1 (%2) - %3").arg(QString::fromStdString(dev.ip))
 											   .arg(QString::fromStdString(dev.sn))
@@ -487,7 +560,6 @@ void PointCloudWgt::onReplayProgress(uint64_t current_ns, uint64_t total_ns)
 {
 	if (total_ns == 0) return;
 	
-	// 更新时间标签
 	auto formatTime = [](uint64_t ns) {
 		int secs = static_cast<int>(ns / 1000000000ULL);
 		int mins = secs / 60;
@@ -497,7 +569,7 @@ void PointCloudWgt::onReplayProgress(uint64_t current_ns, uint64_t total_ns)
 	
 	lblTime_->setText(QString("%1 / %2").arg(formatTime(current_ns)).arg(formatTime(total_ns)));
 	
-	// 更新滑块 (如果用户没有正在拖动)
+	// 用户拖动时不更新滑块
 	if (!isSliderPressed_) {
 		int val = static_cast<int>((static_cast<double>(current_ns) / total_ns) * 1000.0);
 		sliderProgress_->setValue(val);
@@ -507,7 +579,6 @@ void PointCloudWgt::onReplayProgress(uint64_t current_ns, uint64_t total_ns)
 void PointCloudWgt::updateRecordTime()
 {
 	int secs = recordStartTime_.secsTo(QTime::currentTime());
-	// 格式化为 HH:mm:ss
 	int hours = secs / 3600;
 	int minutes = (secs % 3600) / 60;
 	int seconds = secs % 60;
@@ -523,24 +594,23 @@ void PointCloudWgt::updateRecordTime()
 void PointCloudWgt::onReplayFinished()
 {
 	isReplayFinished_ = true;
-	// 设置为暂停状态，并更改文本为 Replay
-	// 阻止信号，防止触�?toggled 导致自动重播
+	// 设置为暂停状态，更改按钮文本为 Replay
 	{
 		const QSignalBlocker blocker(btnPlayPause_);
-		btnPlayPause_->setChecked(true); // Checked = Paused
+		btnPlayPause_->setChecked(true);
 	}
-	btnPlayPause_->setText("Replay");
+	btnPlayPause_->setText(tr("Replay"));
+	isReplayFinished_ = true;
 }
 
 void PointCloudWgt::onRecordingDropped()
 {
-	// 临时更改窗口标题以警告用�?
-	// 也可以考虑使用 QToolTip::showText 或更新状态栏
+	// 临时更改窗口标题以警告丢帧
 	static int dropCount = 0;
 	dropCount++;
 	this->setWindowTitle(QString("LingerPerceiver - WARNING: RECORDING DROPPED FRAMES (%1)").arg(dropCount));
 	
-	// 3秒后恢复标题（如果不再丢帧）
+	// 3秒后恢复标题
 	QTimer::singleShot(3000, this, [this](){
 		this->setWindowTitle("LingerPerceiver");
 	});
@@ -548,34 +618,31 @@ void PointCloudWgt::onRecordingDropped()
 
 void PointCloudWgt::onRecordingFinished()
 {
-	ui->btnRecord->setText("Record");
+	ui->btnRecord->setText(tr("Record"));
 	ui->btnRecord->setStyleSheet("");
 	ui->btnRecord->setEnabled(true);
-	ui->label_record->setText("Data Recording");
+	ui->label_record->setText(tr("Data Recording"));
 	
-	// 确保按钮状态为未选中
 	const QSignalBlocker blocker(ui->btnRecord);
 	ui->btnRecord->setChecked(false);
 }
 
 void PointCloudWgt::onDeviceError(const QString& msg)
 {
-	QMessageBox::critical(this, "Device Error", msg);
+	QMessageBox::critical(this, tr("Device Error"), msg);
 
-	// 发生错误时，尝试重置相关 UI 状�?
-	
-	// 如果录制按钮被按下（例如启动录制失败），重置�?
+	// 重置录制按钮状态
 	if (ui->btnRecord->isChecked() || !ui->btnRecord->isEnabled()) {
 		const QSignalBlocker blocker(ui->btnRecord);
 		ui->btnRecord->setChecked(false);
-		ui->btnRecord->setText("Record");
+		ui->btnRecord->setText(tr("Record"));
 		ui->btnRecord->setStyleSheet("");
 		ui->btnRecord->setEnabled(true);
 		if (recordTimer_->isActive()) recordTimer_->stop();
-		ui->label_record->setText("Data Recording");
+		ui->label_record->setText(tr("Data Recording"));
 	}
 
-	// 如果回放按钮被按下（例如启动回放失败），重置�?
+	// 重置回放按钮状态
 	if (ui->btnReplay->isChecked()) {
 		const QSignalBlocker blocker(ui->btnReplay);
 		ui->btnReplay->setChecked(false);
@@ -585,7 +652,7 @@ void PointCloudWgt::onDeviceError(const QString& msg)
 
 void PointCloudWgt::onDeviceInfo(const QString& msg)
 {
-	QMessageBox::information(this, "Device Info", msg);
+	QMessageBox::information(this, tr("Device Info"), msg);
 }
 
 void PointCloudWgt::setFilterValues(double dist_min, double dist_max, bool dist_enabled,
@@ -633,7 +700,7 @@ void PointCloudWgt::setDockingValues(double nr_xmin, double nr_xmax, double nr_y
                                      double edge_xmin, double edge_xmax, double edge_ymin, double edge_ymax,
                                      double edge_zmin, double edge_zmax, double edge_ransac, bool edge_enabled)
 {
-	// Nearest Region
+	// 临近区域
 	if (ui->nrXMinSpin) { const QSignalBlocker b(ui->nrXMinSpin); ui->nrXMinSpin->setValue(nr_xmin); }
 	if (ui->nrXMaxSpin) { const QSignalBlocker b(ui->nrXMaxSpin); ui->nrXMaxSpin->setValue(nr_xmax); }
 	if (ui->nrYMinSpin) { const QSignalBlocker b(ui->nrYMinSpin); ui->nrYMinSpin->setValue(nr_ymin); }
@@ -641,10 +708,9 @@ void PointCloudWgt::setDockingValues(double nr_xmin, double nr_xmax, double nr_y
 	if (ui->nrZMinSpin) { const QSignalBlocker b(ui->nrZMinSpin); ui->nrZMinSpin->setValue(nr_zmin); }
 	if (ui->nrZMaxSpin) { const QSignalBlocker b(ui->nrZMaxSpin); ui->nrZMaxSpin->setValue(nr_zmax); }
 	if (ui->nrPercentileSpin) { const QSignalBlocker b(ui->nrPercentileSpin); ui->nrPercentileSpin->setValue(nr_percentile); }
-	// nearestEnableCheck = nr_enabled
 	if (ui->nearestEnableCheck) { const QSignalBlocker b(ui->nearestEnableCheck); ui->nearestEnableCheck->setChecked(nr_enabled); }
 	
-	// Dock Edge
+	// 码头边缘
 	if (ui->edgeXMinSpin) { const QSignalBlocker b(ui->edgeXMinSpin); ui->edgeXMinSpin->setValue(edge_xmin); }
 	if (ui->edgeXMaxSpin) { const QSignalBlocker b(ui->edgeXMaxSpin); ui->edgeXMaxSpin->setValue(edge_xmax); }
 	if (ui->edgeYMinSpin) { const QSignalBlocker b(ui->edgeYMinSpin); ui->edgeYMinSpin->setValue(edge_ymin); }
@@ -652,6 +718,5 @@ void PointCloudWgt::setDockingValues(double nr_xmin, double nr_xmax, double nr_y
 	if (ui->edgeZMinSpin) { const QSignalBlocker b(ui->edgeZMinSpin); ui->edgeZMinSpin->setValue(edge_zmin); }
 	if (ui->edgeZMaxSpin) { const QSignalBlocker b(ui->edgeZMaxSpin); ui->edgeZMaxSpin->setValue(edge_zmax); }
 	if (ui->edgeRansacDistSpin) { const QSignalBlocker b(ui->edgeRansacDistSpin); ui->edgeRansacDistSpin->setValue(edge_ransac); }
-	// edgeEnableCheck = edge_enabled
 	if (ui->edgeEnableCheck) { const QSignalBlocker b(ui->edgeEnableCheck); ui->edgeEnableCheck->setChecked(edge_enabled); }
 }

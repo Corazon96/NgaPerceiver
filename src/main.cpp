@@ -3,6 +3,7 @@
 #include <chrono>
 #include "core/logger.h"
 #include "core/app_config.h"
+#include "core/app_init.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -18,6 +19,11 @@
 #include "core/pipeline_setup.h"
 #include "core/config.h"
 #include "algorithms/docking_algorithm.h"
+#include "communication/docking_publisher.h"
+
+#ifdef ENABLE_TRANSLATIONS
+#include "core/translation_manager.h"
+#endif
 
 // 全局配置实例及路径（用于持久化）
 static Linger::AppConfig g_appConfig;
@@ -32,23 +38,24 @@ int main(int argc, char **argv)
 #endif
 
 	QApplication app(argc, argv);
+	
+#ifdef ENABLE_TRANSLATIONS
+	// 初始化翻译管理器
+	TranslationManager::instance().initialize(&app);
+#endif
+
 	PointCloudWgt w;
 	w.show();
 
 	// 初始化日志系统（日志将存放到 log/<日期>/linger_perceiver.log）
     Logger::instance().init("linger_perceiver");
 
-	/**
-	 * @brief 析构顺序：dev -> proc -> w (包含 rend)
-	 * 这样保证了：
-	 * 1. dev 停止产生数据
-	 * 2. proc 停止处理数据
-	 * 3. w 销毁 UI 和 Renderer
-	 */
+	// 析构顺序：dev -> proc -> w（保证数据流安全停止）
 	auto rend = w.getRenderer();
 	PointCloudProcessor proc;
 	DeviceManager dev;
 	Linger::DockingAlgorithm docking;
+	Linger::DockingPublisher publisher;
 
 	// 配置 processor
 	proc.start();
@@ -56,10 +63,7 @@ int main(int argc, char **argv)
 	// 设置滤波管线（将具体的滤波器创建与 UI 连接逻辑分离到 pipeline_setup.cpp 中）
 	SetupFilterPipeline(proc, w);
 
-	/**
-	 * @brief 加载应用配置（滤波器参数等）
-	 * 支持 --app-config 命令行参数指定路径
-	 */
+	// 加载应用配置（支持 --app-config 命令行参数）
 	for (int i = 1; i < argc; ++i) {
 		std::string arg = argv[i];
 		if ((arg == "--app-config") && i + 1 < argc) {
@@ -113,35 +117,18 @@ int main(int argc, char **argv)
 	emit w.motionOutputChanged(g_appConfig.motion_output_static);
 	emit w.motionEnabledChanged(g_appConfig.motion_enabled);
 
-	// 初始化 Docking 算法配置（从持久化配置加载）
-	Linger::DockingConfig dockingConfig;
-	dockingConfig.nearest.sector_x_min = g_appConfig.nr_sector_x_min;
-	dockingConfig.nearest.sector_x_max = g_appConfig.nr_sector_x_max;
-	dockingConfig.nearest.sector_y_min = g_appConfig.nr_sector_y_min;
-	dockingConfig.nearest.sector_y_max = g_appConfig.nr_sector_y_max;
-	dockingConfig.nearest.sector_z_min = g_appConfig.nr_sector_z_min;
-	dockingConfig.nearest.sector_z_max = g_appConfig.nr_sector_z_max;
-	dockingConfig.nearest.percentile = g_appConfig.nr_percentile;
-	dockingConfig.nearest.enabled = g_appConfig.nr_enabled;
-	dockingConfig.edge.sector_x_min = g_appConfig.edge_x_min;
-	dockingConfig.edge.sector_x_max = g_appConfig.edge_x_max;
-	dockingConfig.edge.sector_y_min = g_appConfig.edge_y_min;
-	dockingConfig.edge.sector_y_max = g_appConfig.edge_y_max;
-	dockingConfig.edge.edge_z_min = g_appConfig.edge_z_min;
-	dockingConfig.edge.edge_z_max = g_appConfig.edge_z_max;
-	dockingConfig.edge.ransac_distance_threshold = g_appConfig.edge_ransac_dist;
-	dockingConfig.edge.enabled = g_appConfig.edge_enabled;
-	dockingConfig.temporal.max_jump_m = g_appConfig.temporal_max_jump;
-	dockingConfig.temporal.enabled = g_appConfig.temporal_enabled;
-	docking.setConfig(dockingConfig);
-	LOG_INFO("Docking algorithm initialized: Nearest={}, Edge={}, Temporal={}",
-	         dockingConfig.nearest.enabled ? "ON" : "OFF",
-	         dockingConfig.edge.enabled ? "ON" : "OFF",
-	         dockingConfig.temporal.enabled ? "ON" : "OFF");
+	// 使用共享模块初始化靠泊算法和 UDP 发布器
+	Linger::SetupDockingFromConfig(docking, g_appConfig);
+	Linger::SetupPublisherFromConfig(publisher, g_appConfig);
 
-	/**
-	 * @brief 连接 UI 信号以持久化配置变更
-	 */
+	// 设置 Docking 状态更新回调（发送 UDP + 更新可视化）
+	Linger::ConnectDockingCallbacks(docking, publisher, [rend](const Linger::DockingState& state) {
+		if (rend) {
+			rend->updateDocking(state);
+		}
+	});
+
+	// 连接 UI 信号以持久化配置变更
 	auto saveConfig = [](){ Linger::SaveAppConfig(g_appConfigPath, g_appConfig); };
 	
 	QObject::connect(&w, &PointCloudWgt::minDistChanged, [saveConfig](double val){
@@ -344,11 +331,7 @@ int main(int argc, char **argv)
 	emit w.edgeRansacDistChanged(g_appConfig.edge_ransac_dist);
 	emit w.edgeEnabledChanged(g_appConfig.edge_enabled);
 
-	/**
-	 * @brief 链式回调：设备 ->处理器 -> 渲染器
-	 * 使用 Renderer::submitMap 接收由 Processor 原子发布的累积地图快照（避免数据竞争）
-	 * 带 IMU/时间戳同步
-	 */
+	// 链式回调：设备 -> 处理器 -> 渲染器
 	dev.onFrameWithPose = [&](PointCloudPtr pc, const Pose& pose)
 	{ proc.enqueue(pc, pose); };
 	
@@ -504,13 +487,9 @@ int main(int argc, char **argv)
 		});
 	};
 
-	/**
-	 * @brief 解析命令行参数并搜索配置文件
-	 * ./linger_perceiver -c path/to/your/config.json
-	 */
+	// 解析命令行参数并搜索 Livox 配置文件
+	// 解析命令行参数获取 Livox 配置路径
 	std::string config_path;
-	
-	// 1. 首先检查命令行参数
 	for (int i = 1; i < argc; ++i) {
 		std::string arg = argv[i];
 		if ((arg == "-c" || arg == "--config") && i + 1 < argc) {
@@ -518,29 +497,8 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
-	
-	// 2. 如果命令行未指定，按优先级搜索默认路径
-	if (config_path.empty()) {
-		const std::vector<std::string> search_paths = {
-			"./mid360_config.json",           // 当前目录
-			"./config/mid360_config.json",    // config 子目录
-			"../mid360_config.json",          // 上级目录（开发时常用）
-		};
-		
-		for (const auto& path : search_paths) {
-			if (std::filesystem::exists(std::filesystem::u8path(path))) {
-				config_path = path;
-				LOG_INFO("Found Livox config at: {}", path);
-				break;
-			}
-		}
-		
-		// 3. 如果都找不到，使用默认值
-		if (config_path.empty()) {
-			config_path = "./mid360_config.json";
-			LOG_WARN("Livox config not found in search paths, using default: {}", config_path);
-		}
-	}
+	// 使用共享模块搜索 Livox 配置文件
+	config_path = Linger::FindLivoxConfig(config_path);
 
 	// 启动设备采集（处理器已启动）
 	if (!dev.start(config_path))
@@ -550,6 +508,9 @@ int main(int argc, char **argv)
 	}
 
 	int ret = app.exec();
+	
+	// 停止 UDP 发布器
+	publisher.stop();
 	
 	// 由于调整了对象声明顺序，现在可以依赖 RAII 自动析构，无需手动清理
 	return ret;

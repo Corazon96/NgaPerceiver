@@ -38,15 +38,6 @@ bool LoadAppConfig(const std::string& path, AppConfig& cfg)
         return false;
     }
 
-    // logging
-    if (doc.HasMember("logging") && doc["logging"].IsObject()) {
-        const auto& logging = doc["logging"];
-        if (logging.HasMember("log_file") && logging["log_file"].IsString())
-            cfg.log_file = logging["log_file"].GetString();
-        if (logging.HasMember("log_level") && logging["log_level"].IsString())
-            cfg.log_level = logging["log_level"].GetString();
-    }
-
     // filters
     if (doc.HasMember("filters") && doc["filters"].IsObject()) {
         const auto& filters = doc["filters"];
@@ -193,6 +184,19 @@ bool LoadAppConfig(const std::string& path, AppConfig& cfg)
         }
     }
 
+    // udp
+    if (doc.HasMember("udp") && doc["udp"].IsObject()) {
+        const auto& udp = doc["udp"];
+        if (udp.HasMember("target_ip") && udp["target_ip"].IsString())
+            cfg.udp_target_ip = udp["target_ip"].GetString();
+        if (udp.HasMember("target_port") && udp["target_port"].IsUint())
+            cfg.udp_target_port = static_cast<uint16_t>(udp["target_port"].GetUint());
+        if (udp.HasMember("sensor_id") && udp["sensor_id"].IsUint())
+            cfg.udp_sensor_id = static_cast<uint8_t>(udp["sensor_id"].GetUint());
+        if (udp.HasMember("enabled") && udp["enabled"].IsBool())
+            cfg.udp_enabled = udp["enabled"].GetBool();
+    }
+
     LOG_INFO("[AppConfig] Loaded config from {}", path);
     return true;
 }
@@ -209,14 +213,6 @@ bool SaveAppConfig(const std::string& path, const AppConfig& cfg)
     rapidjson::Document doc;
     doc.SetObject();
     auto& alloc = doc.GetAllocator();
-
-    // logging
-    {
-        rapidjson::Value logging(rapidjson::kObjectType);
-        logging.AddMember("log_file", rapidjson::Value(cfg.log_file.c_str(), alloc), alloc);
-        logging.AddMember("log_level", rapidjson::Value(cfg.log_level.c_str(), alloc), alloc);
-        doc.AddMember("logging", logging, alloc);
-    }
 
     // filters
     {
@@ -335,9 +331,20 @@ bool SaveAppConfig(const std::string& path, const AppConfig& cfg)
         doc.AddMember("docking", docking, alloc);
     }
 
+    // udp
+    {
+        rapidjson::Value udp(rapidjson::kObjectType);
+        udp.AddMember("target_ip", rapidjson::Value(cfg.udp_target_ip.c_str(), alloc), alloc);
+        udp.AddMember("target_port", cfg.udp_target_port, alloc);
+        udp.AddMember("sensor_id", cfg.udp_sensor_id, alloc);
+        udp.AddMember("enabled", cfg.udp_enabled, alloc);
+        doc.AddMember("udp", udp, alloc);
+    }
+
     // 写入文件
     rapidjson::StringBuffer sb;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    writer.SetMaxDecimalPlaces(2);  // 限制浮点数精度为 2 位小数
     doc.Accept(writer);
 
     std::ofstream ofs(path);

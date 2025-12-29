@@ -37,21 +37,6 @@ public:
     DockingState processMultiple(const std::vector<PointCloudPtr>& clouds, uint64_t timestamp_ns);
 
     /**
-     * @brief Layer 1: 预处理结果
-     * 用于区分静态/动态目标，检测结构化特征
-     */
-    struct PreprocessResult {
-        PointCloudPtr static_cloud;        ///< 静态目标点云（码头、岸边设施）
-        PointCloudPtr dynamic_cloud;       ///< 动态目标点云（船只、人员）
-        bool dock_surface_detected = false; ///< 是否检测到码头平面
-        float dock_plane_distance = 0.0f;  ///< 码头平面距离 (m)
-        float dock_plane_height = 0.0f;    ///< 码头平面高度 (m)
-        size_t static_point_count = 0;     ///< 静态点数量
-        size_t dynamic_point_count = 0;    ///< 动态点数量
-        size_t low_density_filtered = 0;   ///< 低密度噪声点数量
-    };
-
-    /**
      * @brief 设置配置
      */
     void setConfig(const DockingConfig& config);
@@ -93,43 +78,6 @@ public:
     std::function<void(const DockingState&)> onStateUpdated;
 
 private:
-    //=========================================================================
-    // Layer 1: 预处理辅助函数
-    // 注：主要预处理功能已重构为独立 Filter (DensityFilter, MotionFilter)
-    //     位于 include/preprocessing/，通过 Processor 管线调用
-    //     此处保留检测专用的预处理接口
-    //=========================================================================
-    
-    /**
-     * @brief 预处理点云：区分静态/动态目标，检测结构化特征
-     * @param clouds 输入点云块
-     * @return 预处理结果
-     */
-    PreprocessResult preprocessClouds(const std::vector<PointCloudPtr>& clouds);
-    
-    /**
-     * @brief 基于密度过滤噪声点
-     * @param cloud 输入点云
-     * @param voxel_size 体素大小 (m)
-     * @param min_points_per_voxel 每个体素最小点数
-     * @return 过滤后的点云
-     */
-    PointCloudPtr densityFilter(const PointCloudPtr& cloud, float voxel_size, int min_points_per_voxel);
-    
-    /**
-     * @brief 检测水平平面（码头表面）
-     * @param cloud 输入点云
-     * @param result 输出结果
-     */
-    void detectDockSurface(const PointCloudPtr& cloud, PreprocessResult& result);
-    
-    /**
-     * @brief 区分静态和动态点
-     * @param cloud 当前帧点云
-     * @param result 输出结果
-     */
-    void separateStaticDynamic(const PointCloudPtr& cloud, PreprocessResult& result);
-
     //=========================================================================
     // Layer 2: 多假设边缘检测
     //=========================================================================
@@ -207,14 +155,6 @@ private:
     DockEdgeResult detectDockEdge(const std::vector<PointCloudPtr>& clouds);
     
     /**
-     * @brief RANSAC 2D 直线拟合
-     */
-    bool fitLineRansac(const std::vector<std::pair<float, float>>& points,
-                       const DockEdgeConfig& cfg,
-                       Line2D& line,
-                       std::vector<size_t>& inliers);
-    
-    /**
      * @brief 使用最小二乘法精化直线
      */
     void refineLine(const std::vector<std::pair<float, float>>& points,
@@ -250,10 +190,6 @@ private:
     mutable std::mutex mutex_;
     DockingConfig config_;
     DockingState last_state_;
-    
-    // Layer 1 预处理历史数据
-    PointCloudPtr previous_cloud_;          ///< 上一帧点云（用于动静分离）
-    uint64_t previous_timestamp_ns_ = 0;    ///< 上一帧时间戳
     
     // Layer 2 多假设历史数据
     Line2D last_valid_edge_line_;           ///< 上一次有效的边缘直线

@@ -25,15 +25,30 @@ void SeaSurfaceFilter::setEnabled(bool enabled)
 
 void SeaSurfaceFilter::filter(const PointCloudPtr& input, PointCloudPtr& output)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    filtered_count_.store(0);
-
     if (!input) {
-        output.reset();
         return;
     }
-    if (!enabled_) {
-        output = input;
+
+    if (!output) {
+        output = std::make_shared<PointCloud>();
+    }
+
+    // 获取参数快照（短时间持锁）
+    float current_sea_level;
+    float current_margin;
+    bool current_enabled;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        current_sea_level = sea_level_z_;
+        current_margin = margin_;
+        current_enabled = enabled_;
+    }
+
+    if (!current_enabled) {
+        if (input != output) {
+            *output = *input;
+        }
+        filtered_count_.store(0);
         return;
     }
 
@@ -42,7 +57,7 @@ void SeaSurfaceFilter::filter(const PointCloudPtr& input, PointCloudPtr& output)
         out = std::make_shared<pcl::PointCloud<Point>>();
     }
 
-    const float threshold = sea_level_z_ + margin_;
+    const float threshold = current_sea_level + current_margin;
     const size_t in_size = input->points.size();
 
     out->points.clear();

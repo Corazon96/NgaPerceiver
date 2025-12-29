@@ -23,15 +23,32 @@ void CropBoxFilter::setEnabled(bool enabled)
 
 void CropBoxFilter::filter(const PointCloudPtr& input, PointCloudPtr& output)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    filtered_count_.store(0);
-
     if (!input) {
-        output.reset();
         return;
     }
-    if (!enabled_) {
-        output = input;
+
+    if (!output) {
+        output = std::make_shared<PointCloud>();
+    }
+
+    // 获取参数快照（短时间持锁）
+    float current_x_min, current_x_max;
+    float current_y_min, current_y_max;
+    float current_z_min, current_z_max;
+    bool current_enabled;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        current_x_min = x_min_; current_x_max = x_max_;
+        current_y_min = y_min_; current_y_max = y_max_;
+        current_z_min = z_min_; current_z_max = z_max_;
+        current_enabled = enabled_;
+    }
+
+    if (!current_enabled) {
+        if (input != output) {
+            *output = *input;
+        }
+        filtered_count_.store(0);
         return;
     }
 
@@ -43,8 +60,8 @@ void CropBoxFilter::filter(const PointCloudPtr& input, PointCloudPtr& output)
     const size_t in_size = input->points.size();
 
     pcl::CropBox<Point> crop;
-    crop.setMin(Eigen::Vector4f(x_min_, y_min_, z_min_, 1.0f));
-    crop.setMax(Eigen::Vector4f(x_max_, y_max_, z_max_, 1.0f));
+    crop.setMin(Eigen::Vector4f(current_x_min, current_y_min, current_z_min, 1.0f));
+    crop.setMax(Eigen::Vector4f(current_x_max, current_y_max, current_z_max, 1.0f));
     crop.setInputCloud(input);
     crop.filter(*out);
 
