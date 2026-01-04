@@ -97,7 +97,7 @@ private:
 	Streamer streamer_;
 
 	// 回放线程
-	std::thread replay_thread_;
+	std::thread replay_worker_;
 	std::atomic<bool> running_{false};
 	std::atomic<bool> paused_{false};
 	std::atomic<float> speed_{1.0f};

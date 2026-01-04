@@ -7,6 +7,8 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include <queue>
+#include <condition_variable>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -137,6 +139,11 @@ private:
      */
     DockingPacket stateToPacket(const DockingState& state);
 
+    /**
+     * @brief 发送线程工作函数
+     */
+    void senderThreadFunc();
+
 private:
     UdpConfig config_;
     mutable std::mutex config_mutex_;
@@ -152,6 +159,13 @@ private:
 #endif
     sockaddr_in target_addr_{};
     std::mutex socket_mutex_;
+
+    // 异步发送线程
+    std::thread sender_worker_;
+    std::queue<DockingPacket> packet_queue_;
+    std::mutex queue_mutex_;
+    std::condition_variable queue_cv_;
+    static constexpr size_t MAX_QUEUE_SIZE = 100;  ///< 队列最大长度
 
     // WinSock 初始化标志
     static std::atomic<int> wsa_init_count_;

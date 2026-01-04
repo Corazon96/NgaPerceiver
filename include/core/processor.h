@@ -69,7 +69,7 @@ private:
 	SpscRingBuffer<std::pair<PointCloudPtr, Pose>> queue_{LingerConfig::PROCESSOR_QUEUE_SIZE};
 	std::mutex mutex_;
 	std::condition_variable cond_;
-	std::thread worker_;
+	std::thread processor_worker_;
 	std::atomic<bool> running_{false};
 	std::atomic<size_t> count_{0};
 	std::function<void(const std::vector<PointCloudPtr>&, size_t)> mapUpdateCallback_;

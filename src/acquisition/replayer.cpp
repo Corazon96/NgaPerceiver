@@ -89,13 +89,13 @@ bool Replayer::start(const std::string& filepath)
 		return false;
 	}
 
-	if (replay_thread_.joinable()) {
-		replay_thread_.join();
+	if (replay_worker_.joinable()) {
+		replay_worker_.join();
 	}
 
 	running_.store(true);
 	paused_.store(false);
-	replay_thread_ = std::thread(&Replayer::replayWorker_, this, filepath);
+	replay_worker_ = std::thread(&Replayer::replayWorker_, this, filepath);
 	return true;
 }
 
@@ -106,8 +106,8 @@ void Replayer::stop()
 	running_.store(false);
 	paused_.store(false); // 确保不卡在暂停状态
 
-	if (replay_thread_.joinable()) {
-		replay_thread_.join();
+	if (replay_worker_.joinable()) {
+		replay_worker_.join();
 	}
 	streamer_.closeRead();
 }

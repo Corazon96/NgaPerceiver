@@ -122,7 +122,7 @@ struct Renderer::Impl
 	vtkSmartPointer<vtkTextActor> fpsTextActor;
 
 	// 渲染工作线程相关
-	std::thread renderWorker;
+	std::thread render_worker_;
 	std::atomic<bool> workerRunning{false};
 	std::condition_variable workerCv;
 	std::mutex workerMutex;
@@ -302,7 +302,7 @@ Renderer::Renderer() : pimpl(new Impl())
 
 	// 启动渲染工作线程
 	pimpl->workerRunning = true;
-	pimpl->renderWorker = std::thread([this]() {
+	pimpl->render_worker_ = std::thread([this]() {
 		while (pimpl->workerRunning)
 		{
 			std::vector<PointCloudPtr> currentMap;
@@ -445,9 +445,9 @@ Renderer::~Renderer()
 	// 停止工作线程
 	pimpl->workerRunning = false;
 	pimpl->workerCv.notify_all();
-	if (pimpl->renderWorker.joinable())
+	if (pimpl->render_worker_.joinable())
 	{
-		pimpl->renderWorker.join();
+		pimpl->render_worker_.join();
 	}
 	delete pimpl;
 }

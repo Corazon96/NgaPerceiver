@@ -49,6 +49,10 @@ bool DockingPublisher::start()
     }
 
     running_.store(true);
+    
+    // 启动发送线程
+    sender_worker_ = std::thread(&DockingPublisher::senderThreadFunc, this);
+    
     LOG_INFO("[DockingPublisher] Started, target={}:{}, sensor_id={}",
              cfg.target_ip, cfg.target_port, cfg.sensor_id);
     return true;
@@ -61,7 +65,24 @@ void DockingPublisher::stop()
     }
 
     running_.store(false);
+    
+    // 通知发送线程退出
+    queue_cv_.notify_all();
+    
+    // 等待线程结束
+    if (sender_worker_.joinable()) {
+        sender_worker_.join();
+    }
+    
     closeSocket();
+    
+    // 清空队列
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        std::queue<DockingPacket> empty;
+        std::swap(packet_queue_, empty);
+    }
+    
     LOG_INFO("[DockingPublisher] Stopped, sent={}, errors={}",
              sent_count_.load(), error_count_.load());
 }
@@ -74,11 +95,20 @@ void DockingPublisher::publish(const DockingState& state)
 
     DockingPacket packet = stateToPacket(state);
     
-    if (sendPacket(packet)) {
-        sent_count_.fetch_add(1);
-    } else {
-        error_count_.fetch_add(1);
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        
+        // 队列满时丢弃最旧的包
+        if (packet_queue_.size() >= MAX_QUEUE_SIZE) {
+            packet_queue_.pop();
+            LOG_WARN("[DockingPublisher] Queue overflow, dropping oldest packet");
+        }
+        
+        packet_queue_.push(packet);
     }
+    
+    // 通知发送线程
+    queue_cv_.notify_one();
 }
 
 bool DockingPublisher::initSocket()
@@ -241,6 +271,47 @@ DockingPacket DockingPublisher::stateToPacket(const DockingState& state)
     }
 
     return packet;
+}
+
+void DockingPublisher::senderThreadFunc()
+{
+    LOG_INFO("[DockingPublisher] sender_worker_ thread started");
+    
+    while (running_.load()) {
+        DockingPacket packet;
+        bool has_packet = false;
+        
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            
+            // 等待队列非空或停止信号
+            queue_cv_.wait(lock, [this] {
+                return !packet_queue_.empty() || !running_.load();
+            });
+            
+            // 再次检查 running 状态
+            if (!running_.load() && packet_queue_.empty()) {
+                break;
+            }
+            
+            if (!packet_queue_.empty()) {
+                packet = packet_queue_.front();
+                packet_queue_.pop();
+                has_packet = true;
+            }
+        }
+        
+        // 在锁外发送，避免阻塞入队操作
+        if (has_packet) {
+            if (sendPacket(packet)) {
+                sent_count_.fetch_add(1);
+            } else {
+                error_count_.fetch_add(1);
+            }
+        }
+    }
+    
+    LOG_INFO("[DockingPublisher] sender_worker_ thread stopped");
 }
 
 } // namespace Linger

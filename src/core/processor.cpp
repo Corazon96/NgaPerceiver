@@ -41,7 +41,7 @@ void PointCloudProcessor::start()
 	if (running_.load())
 		return;
 	running_ = true;
-	worker_ = std::thread([this]()
+	processor_worker_ = std::thread([this]()
 						  {
 		// 每秒聚合用于诊断
 		uint64_t s_frames = 0;
@@ -238,8 +238,8 @@ void PointCloudProcessor::stop()
 	
 	running_ = false;
 	cond_.notify_all();
-	if (worker_.joinable())
-		worker_.join();
+	if (processor_worker_.joinable())
+		processor_worker_.join();
 }
 
 void PointCloudProcessor::enqueue(PointCloudPtr pc, const Pose &pose)
