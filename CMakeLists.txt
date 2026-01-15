@@ -1,5 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.10...3.31)
-project(LingerPerceiver VERSION 0.0.1 LANGUAGES CXX)
+# 启用 C 和 CXX 语言（Linux 上 VTK/MPI 需要 C 语言支持）
+project(LingerPerceiver VERSION 0.0.1 LANGUAGES C CXX)
  
  # 如果使用 MSVC 编译器，向编译器请求 UTF-8 输出/诊断支持
  if (MSVC)
@@ -16,6 +17,7 @@ option(USE_LIVOX "Use Livox SDK2" ON)
 option(BUILD_GUI "Build GUI application (Qt/VTK)" ON)
 option(BUILD_HEADLESS "Build headless service without Qt/VTK" OFF)
 option(ENABLE_TRANSLATIONS "Enable Qt translations (i18n)" ON)
+option(STATIC_LINK_STDLIB "Statically link libstdc++ and libgcc (Linux)" OFF)
 
 # GUI 构建依赖 Qt/VTK；Headless 不需要。默认开启 GUI 构建。
 set(USE_QT ${BUILD_GUI})
@@ -80,10 +82,21 @@ if(USE_QT)
 endif()
 
 if(USE_PCL)
- if(NOT DEFINED PCL_DIR)
- set(PCL_DIR "${LOCAL_3RDPARTY_DIR}/${PCL_VERSION_DIR}")
+ # Linux 平台：优先使用系统安装的 PCL
+ if(UNIX AND NOT APPLE)
+   # Headless 模式只需要核心组件，避免 VTK/可视化依赖
+   if(BUILD_HEADLESS)
+     find_package(PCL 1.14 REQUIRED COMPONENTS common io filters kdtree search octree sample_consensus segmentation features)
+   else()
+     find_package(PCL 1.14 REQUIRED)  # Debian trixie 的 PCL 版本
+   endif()
+ else()
+   # Windows: 使用本地 3rdParty 目录
+   if(NOT DEFINED PCL_DIR)
+     set(PCL_DIR "${LOCAL_3RDPARTY_DIR}/${PCL_VERSION_DIR}")
+   endif()
+   find_package(PCL 1.15 REQUIRED HINTS ${PCL_DIR})
  endif()
- find_package(PCL 1.15 REQUIRED HINTS ${PCL_DIR})
  message(STATUS "PCL found: ${PCL_VERSION}")
  include_directories(${PCL_INCLUDE_DIRS})
  list(APPEND EXTRA_LIBS ${PCL_LIBRARIES})
@@ -93,7 +106,30 @@ if(USE_LIVOX)
  if(NOT DEFINED LIVOX_SDK2_ROOT)
  set(LIVOX_SDK2_ROOT "${LOCAL_3RDPARTY_DIR}/Livox-SDK2")
  endif()
- if(EXISTS "${LIVOX_SDK2_ROOT}")
+ 
+ # Linux 平台：优先使用系统安装的 Livox SDK2
+ if(UNIX AND NOT APPLE)
+   find_library(LIVOX_SDK2_SYSTEM_LIB NAMES livox_lidar_sdk_static HINTS /usr/local/lib /usr/lib)
+   if(LIVOX_SDK2_SYSTEM_LIB)
+     message(STATUS "Livox SDK2 found in system: ${LIVOX_SDK2_SYSTEM_LIB}")
+     set(LIVOX_SDK2_INCLUDE_DIR "/usr/local/include")
+     set(LIVOX_SDK2_STATIC_LIB_RELEASE_PATH "${LIVOX_SDK2_SYSTEM_LIB}")
+     set(LIVOX_SDK2_STATIC_LIB_DEBUG_PATH "${LIVOX_SDK2_SYSTEM_LIB}")
+   elseif(EXISTS "${LIVOX_SDK2_ROOT}")
+     # 回退到本地目录
+     find_library(LIVOX_SDK2_STATIC_LIB_RELEASE NAMES livox_lidar_sdk_static HINTS ${LIVOX_SDK2_ROOT}/lib)
+     if(LIVOX_SDK2_STATIC_LIB_RELEASE)
+       message(STATUS "Livox SDK2 found locally: ${LIVOX_SDK2_STATIC_LIB_RELEASE}")
+       set(LIVOX_SDK2_INCLUDE_DIR "${LIVOX_SDK2_ROOT}/include")
+       set(LIVOX_SDK2_STATIC_LIB_RELEASE_PATH "${LIVOX_SDK2_STATIC_LIB_RELEASE}")
+       set(LIVOX_SDK2_STATIC_LIB_DEBUG_PATH "${LIVOX_SDK2_STATIC_LIB_RELEASE}")
+     else()
+       message(FATAL_ERROR "Livox SDK2 not found. Install via: git clone + cmake + make install")
+     endif()
+   else()
+     message(FATAL_ERROR "Livox SDK2 not found. Set LIVOX_SDK2_ROOT or install system-wide.")
+   endif()
+ elseif(EXISTS "${LIVOX_SDK2_ROOT}")
  	# 尝试查找静态 Livox SDK 的 Release 与 Debug 版本（分别为不同文件名）
  	find_library(LIVOX_SDK2_STATIC_LIB_RELEASE NAMES livox_lidar_sdk_static HINTS ${LIVOX_SDK2_ROOT}/lib PATH_SUFFIXES lib)
  	find_library(LIVOX_SDK2_STATIC_LIB_DEBUG   NAMES livox_lidar_sdk_staticd livox_lidar_sdk_static_d HINTS ${LIVOX_SDK2_ROOT}/lib PATH_SUFFIXES lib)
@@ -197,7 +233,7 @@ if(BUILD_GUI)
 	add_custom_command(TARGET linger_perceiver POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:linger_perceiver>/config"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${CMAKE_SOURCE_DIR}/mid360_config.json"
+		"${CMAKE_SOURCE_DIR}/config/mid360_config.json"
 		"$<TARGET_FILE_DIR:linger_perceiver>/config/mid360_config.json"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		"${CMAKE_SOURCE_DIR}/config/app_config.json"
@@ -451,15 +487,27 @@ if(BUILD_HEADLESS)
 	if(DEFINED LIVOX_SDK2_INCLUDE_DIR)
 		target_include_directories(linger_perceiver_service PRIVATE ${LIVOX_SDK2_INCLUDE_DIR})
 	endif()
-	if(DEFINED LIVOX_SDK2_STATIC_LIB_DEBUG_PATH)
-		list(APPEND HEADLESS_LIBS $<$<CONFIG:Debug>:${LIVOX_SDK2_STATIC_LIB_DEBUG_PATH}>)
-	endif()
-	if(DEFINED LIVOX_SDK2_STATIC_LIB_RELEASE_PATH)
-		list(APPEND HEADLESS_LIBS $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:${LIVOX_SDK2_STATIC_LIB_RELEASE_PATH}>)
+	# Livox SDK2 链接：Linux 使用统一库，Windows 区分 Debug/Release
+	if(UNIX AND NOT APPLE)
+		if(DEFINED LIVOX_SDK2_STATIC_LIB_RELEASE_PATH)
+			list(APPEND HEADLESS_LIBS ${LIVOX_SDK2_STATIC_LIB_RELEASE_PATH})
+		endif()
+	else()
+		if(DEFINED LIVOX_SDK2_STATIC_LIB_DEBUG_PATH)
+			list(APPEND HEADLESS_LIBS $<$<CONFIG:Debug>:${LIVOX_SDK2_STATIC_LIB_DEBUG_PATH}>)
+		endif()
+		if(DEFINED LIVOX_SDK2_STATIC_LIB_RELEASE_PATH)
+			list(APPEND HEADLESS_LIBS $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:${LIVOX_SDK2_STATIC_LIB_RELEASE_PATH}>)
+		endif()
 	endif()
 	# Windows 平台需要链接 WinSock2（用于 UDP 通信）
 	if(WIN32)
 		list(APPEND HEADLESS_LIBS ws2_32)
+	endif()
+	
+	# Linux 平台需要链接 pthread
+	if(UNIX AND NOT APPLE)
+		list(APPEND HEADLESS_LIBS pthread)
 	endif()
 
 	if(HEADLESS_LIBS)
@@ -470,7 +518,7 @@ if(BUILD_HEADLESS)
 	add_custom_command(TARGET linger_perceiver_service POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:linger_perceiver_service>/config"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${CMAKE_SOURCE_DIR}/mid360_config.json"
+		"${CMAKE_SOURCE_DIR}/config/mid360_config.json"
 		"$<TARGET_FILE_DIR:linger_perceiver_service>/config/mid360_config.json"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		"${CMAKE_SOURCE_DIR}/config/app_config.json"

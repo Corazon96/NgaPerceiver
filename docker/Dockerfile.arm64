@@ -1,0 +1,58 @@
+# LingerPerceiver ARM64 交叉编译环境
+# 目标系统: Debian 13 (trixie) / Raspberry Pi CM5
+FROM --platform=linux/arm64 arm64v8/debian:trixie
+
+LABEL maintainer="nga"
+LABEL description="LingerPerceiver Headless build environment for ARM64"
+
+# 避免交互式安装提示
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 更新源并安装编译依赖
+RUN apt-get update && apt-get install -y \
+    # 基础编译工具
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    pkg-config \
+    # PCL 及其依赖
+    libpcl-dev \
+    libboost-all-dev \
+    libeigen3-dev \
+    libflann-dev \
+    # MPI (修复 VTK MPI target 问题)
+    libopenmpi-dev \
+    openmpi-bin \
+    # 其他依赖
+    rapidjson-dev \
+    # 清理缓存
+    && rm -rf /var/lib/apt/lists/*
+
+# 编译 Livox SDK2 for ARM64 Linux
+# 注意：Livox SDK2 代码缺少 #include <cstdint>，需要打补丁修复（GCC 13+ 要求）
+# QEMU 模拟器编译大文件时易崩溃，因此禁用 samples 编译，只构建库
+WORKDIR /opt
+RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git && \
+    cd Livox-SDK2 && \
+    # 修复缺少 <cstdint> 的问题
+    find . -name "*.h" -o -name "*.cpp" | xargs grep -l "uint8_t\|uint16_t\|uint32_t\|uint64_t" | while read f; do \
+        if ! grep -q "#include <cstdint>" "$f" && ! grep -q "#include <stdint.h>" "$f"; then \
+            sed -i '1i #include <cstdint>' "$f"; \
+        fi; \
+    done && \
+    mkdir build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SAMPLES=OFF && \
+    make -j2 && \
+    make install && \
+    ldconfig
+
+# 设置工作目录
+WORKDIR /workspace
+
+# 设置编译环境变量
+ENV CC=gcc
+ENV CXX=g++
+
+# 默认命令
+CMD ["/bin/bash"]

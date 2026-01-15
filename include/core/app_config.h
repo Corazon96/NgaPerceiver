@@ -12,6 +12,7 @@
  */
 
 #include <string>
+#include <cstdint>
 
 namespace Linger {
 
